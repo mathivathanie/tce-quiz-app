@@ -7,7 +7,7 @@ const PORT = 3001;
 
 // Configuration
 const CONFIG = {
-  MONGODB_URI: 'mongodb://localhost:27017/quiz_app',
+  MONGODB_URI: 'mongodb+srv://roshirose2405:N6t5Plu85Rnuffcf@cluster.tkmxtgf.mongodb.net/quiz_app?retryWrites=true&w=majority',
   FRONTEND_URL: 'http://localhost:3000',
   ADMIN_CODE: 'admin123',
   NODE_ENV: 'development'
@@ -592,6 +592,86 @@ app.get('/api/stats', async (req, res) => {
     });
   }
 });
+
+// Add this route after your existing question routes - DON'T remove the existing /questions route
+app.post('/api/quiz-sessions/:sessionId/questions/csv', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    const { questions } = req.body; // Array of questions from CSV
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    if (!questions || !Array.isArray(questions) || questions.length === 0) {
+      return res.status(400).json({ 
+        message: 'Questions array is required' 
+      });
+    }
+    
+    const session = await QuizSession.findOne({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Validate all questions before adding any
+    const validationErrors = [];
+    questions.forEach((q, index) => {
+      if (!q.question || !q.options || !q.correct) {
+        validationErrors.push(`Row ${index + 2}: Missing required fields`);
+      }
+      if (!q.options.a || !q.options.b || !q.options.c || !q.options.d) {
+        validationErrors.push(`Row ${index + 2}: All four options required`);
+      }
+      if (!['A', 'B', 'C', 'D'].includes(q.correct.toUpperCase())) {
+        validationErrors.push(`Row ${index + 2}: Correct answer must be A, B, C, or D`);
+      }
+    });
+    
+    if (validationErrors.length > 0) {
+      return res.status(400).json({ 
+        message: 'Validation errors found',
+        errors: validationErrors
+      });
+    }
+    
+    // Add all questions to session
+    const formattedQuestions = questions.map(q => ({
+      question: q.question.trim(),
+      options: {
+        a: q.options.a.trim(),
+        b: q.options.b.trim(),
+        c: q.options.c.trim(),
+        d: q.options.d.trim()
+      },
+      correct: q.correct.toUpperCase()
+    }));
+    
+    session.questions.push(...formattedQuestions);
+    await session.save();
+    
+    res.json({
+      message: `Successfully added ${questions.length} questions`,
+      totalQuestions: session.questions.length,
+      session: session
+    });
+  } catch (error) {
+    console.error('CSV upload error:', error);
+    res.status(500).json({ 
+      message: 'Error uploading CSV questions',
+      error: error.message 
+    });
+  }
+});
+
+
 
 // Error handling middleware
 app.use((err, req, res, next) => {
