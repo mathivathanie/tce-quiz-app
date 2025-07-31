@@ -25,6 +25,13 @@ const IntegratedQuizApp = () => {
   const [optionD, setOptionD] = useState('');
   const [correctOption, setCorrectOption] = useState('');
   const [resultSessionCode, setResultSessionCode] = useState('');
+// ADD these new CSV states:
+const [entryMethod, setEntryMethod] = useState('manual'); // 'manual' or 'csv'
+const [csvFile, setCsvFile] = useState(null);
+const [csvPreview, setCsvPreview] = useState([]);
+const [showCsvPreview, setShowCsvPreview] = useState(false);
+const [csvErrors, setCsvErrors] = useState([]);
+
   
   // Student states
   const [studentView, setStudentView] = useState('codeEntry'); // 'codeEntry', 'form', 'quiz', 'result'
@@ -39,6 +46,92 @@ const IntegratedQuizApp = () => {
   const [userAnswers, setUserAnswers] = useState([]);
   const [timeLeft, setTimeLeft] = useState(30 * 60);
   const [showWarning, setShowWarning] = useState(false);
+  const [tabSwitchCount, setTabSwitchCount] = useState(0); // NEW: Track tab switches
+
+  // NEW: CSV Export Function
+  const exportToCSV = (data, filename) => {
+    if (!data || data.length === 0) {
+      alert('No data to export!');
+      return;
+    }
+
+    // Define CSV headers
+    const headers = [
+      'Student Name',
+      'Registration Number',
+      'Department',
+      'Score',
+      'Total Questions',
+      'Percentage',
+      'Grade',
+      'Submission Date',
+      'Submission Time'
+    ];
+
+    // Convert data to CSV format
+    const csvContent = [
+      headers.join(','),
+      ...data.map(result => {
+        const submissionDate = new Date(result.submittedAt);
+        const grade = getGradeFromPercentage(result.percentage);
+        
+        return [
+          `"${result.studentName}"`,
+          `"${result.regNo}"`,
+          `"${result.department}"`,
+          result.score,
+          result.totalQuestions,
+          result.percentage,
+          `"${grade}"`,
+          submissionDate.toLocaleDateString(),
+          submissionDate.toLocaleTimeString()
+        ].join(',');
+      })
+    ].join('\n');
+
+    // Create and download the file
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    
+    if (link.download !== undefined) {
+      const url = URL.createObjectURL(blob);
+      link.setAttribute('href', url);
+      link.setAttribute('download', filename);
+      link.style.visibility = 'hidden';
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+  };
+
+  // NEW: Helper function to get grade from percentage
+  const getGradeFromPercentage = (percentage) => {
+    if (percentage >= 90) return 'A+';
+    else if (percentage >= 80) return 'A';
+    else if (percentage >= 70) return 'B';
+    else if (percentage >= 60) return 'C';
+    else if (percentage >= 50) return 'D';
+    else return 'F';
+  };
+
+  // NEW: Handle CSV export for current results
+  const handleExportCSV = () => {
+    if (!resultSessionCode) {
+      alert('Please enter a quiz code first!');
+      return;
+    }
+
+    if (studentResults.length === 0) {
+      alert('No results found to export!');
+      return;
+    }
+
+    const currentSession = quizSessions.find(s => s.sessionId === resultSessionCode);
+    const sessionName = currentSession ? currentSession.name : resultSessionCode;
+    const filename = `Quiz_Results_${sessionName}_${resultSessionCode}_${new Date().toISOString().split('T')[0]}.csv`;
+    
+    exportToCSV(studentResults, filename);
+  };
 
   // API Functions
   const apiCall = async (endpoint, method = 'GET', data = null) => {
@@ -171,6 +264,144 @@ const IntegratedQuizApp = () => {
     }
   };
 
+// KEEP your existing handleAddQuestion function
+
+// ADD these new CSV functions:
+
+// Handle CSV file selection
+const handleCsvFileSelect = (event) => {
+  const file = event.target.files[0];
+  if (file && (file.type === 'text/csv' || file.name.endsWith('.csv'))) {
+    setCsvFile(file);
+    setCsvErrors([]);
+    parseCsvFile(file);
+  } else {
+    alert('Please select a valid CSV file');
+    event.target.value = '';
+  }
+};
+
+// Parse CSV file using Papaparse
+const parseCsvFile = (file) => {
+  // Import Papaparse (it's available in your environment)
+  import('papaparse').then(Papa => {
+    Papa.parse(file, {
+      header: true,
+      skipEmptyLines: true,
+      transformHeader: (header) => header.trim(),
+      complete: (results) => {
+        if (results.errors.length > 0) {
+          const errorMessages = results.errors.map(e => `Row ${e.row + 1}: ${e.message}`);
+          setCsvErrors(errorMessages);
+          alert('CSV parsing errors found. Check the preview section.');
+          return;
+        }
+        
+        // Validate CSV structure
+        const requiredColumns = ['Question', 'Option A', 'Option B', 'Option C', 'Option D', 'Correct Answer'];
+        const csvColumns = Object.keys(results.data[0] || {});
+        const missingColumns = requiredColumns.filter(col => !csvColumns.includes(col));
+        
+        if (missingColumns.length > 0) {
+          setCsvErrors([`Missing required columns: ${missingColumns.join(', ')}`]);
+          alert(`Missing required columns: ${missingColumns.join(', ')}\n\nRequired columns: ${requiredColumns.join(', ')}`);
+          return;
+        }
+        
+        // Convert CSV data to question format
+        const questions = results.data.map((row, index) => {
+          const correctAnswer = row['Correct Answer']?.toString().trim().toUpperCase();
+          
+          return {
+            question: row['Question']?.toString().trim(),
+            options: {
+              a: row['Option A']?.toString().trim(),
+              b: row['Option B']?.toString().trim(),
+              c: row['Option C']?.toString().trim(),
+              d: row['Option D']?.toString().trim()
+            },
+            correct: correctAnswer,
+            rowIndex: index + 2
+          };
+        });
+        
+        // Validate question data
+        const validationErrors = [];
+        questions.forEach((q, index) => {
+          if (!q.question) validationErrors.push(`Row ${q.rowIndex}: Question is empty`);
+          if (!q.options.a) validationErrors.push(`Row ${q.rowIndex}: Option A is empty`);
+          if (!q.options.b) validationErrors.push(`Row ${q.rowIndex}: Option B is empty`);
+          if (!q.options.c) validationErrors.push(`Row ${q.rowIndex}: Option C is empty`);
+          if (!q.options.d) validationErrors.push(`Row ${q.rowIndex}: Option D is empty`);
+          if (!['A', 'B', 'C', 'D'].includes(q.correct)) {
+            validationErrors.push(`Row ${q.rowIndex}: Correct answer must be A, B, C, or D (found: ${q.correct})`);
+          }
+        });
+        
+        if (validationErrors.length > 0) {
+          setCsvErrors(validationErrors);
+        } else {
+          setCsvErrors([]);
+        }
+        
+        setCsvPreview(questions);
+        setShowCsvPreview(true);
+      },
+      error: (error) => {
+        setCsvErrors([`Error reading CSV file: ${error.message}`]);
+        alert('Error reading CSV file: ' + error.message);
+      }
+    });
+  });
+};
+
+// Upload CSV questions to backend
+const handleCsvUpload = async () => {
+  if (!csvPreview.length || !currentSessionId) {
+    alert('No questions to upload or session not selected');
+    return;
+  }
+  
+  if (csvErrors.length > 0) {
+    alert('Please fix the errors before uploading');
+    return;
+  }
+  
+  try {
+    await apiCall(`/api/quiz-sessions/${currentSessionId}/questions/csv`, 'POST', {
+      questions: csvPreview
+    });
+    
+    // Reset CSV states
+    setCsvFile(null);
+    setCsvPreview([]);
+    setShowCsvPreview(false);
+    setCsvErrors([]);
+    
+    // Reset file input
+    const fileInput = document.querySelector('input[type="file"]');
+    if (fileInput) fileInput.value = '';
+    
+    // Refresh sessions to show updated questions
+    await loadQuizSessions();
+    
+    alert(`Successfully uploaded ${csvPreview.length} questions!`);
+  } catch (error) {
+    alert('Failed to upload CSV questions: ' + error.message);
+  }
+};
+
+// Clear CSV upload
+const clearCsvUpload = () => {
+  setCsvFile(null);
+  setCsvPreview([]);
+  setShowCsvPreview(false);
+  setCsvErrors([]);
+  
+  const fileInput = document.querySelector('input[type="file"]');
+  if (fileInput) fileInput.value = '';
+};
+
   // Start quiz
   const handleStartQuiz = async () => {
     try {
@@ -234,6 +465,7 @@ const IntegratedQuizApp = () => {
     setStudentView('quiz');
     setCurrentQuestion(0);
     setTimeLeft(30 * 60);
+    setTabSwitchCount(0); // UPDATED: Reset tab switch counter
   };
 
   // Select answer option
@@ -295,6 +527,7 @@ const IntegratedQuizApp = () => {
     setCurrentQuestion(0);
     setUserAnswers([]);
     setTimeLeft(30 * 60);
+    setTabSwitchCount(0); // UPDATED: Reset tab switch counter
   };
 
   // Load results when result session code changes
@@ -335,11 +568,27 @@ const IntegratedQuizApp = () => {
       }
     };
 
+    // UPDATED: Modified visibility change handler for tab switch tracking
     const handleVisibilityChange = () => {
       if (document.hidden && studentView === 'quiz') {
-        setShowWarning(true);
-        setTimeout(() => setShowWarning(false), 3000);
-        submitQuiz();
+        setTabSwitchCount(prev => {
+          const newCount = prev + 1;
+          
+          if (newCount === 1) {
+            // First tab switch - show warning only
+            setShowWarning(true);
+            setTimeout(() => setShowWarning(false), 3000);
+            return newCount;
+          } else if (newCount >= 2) {
+            // Second or more tab switches - auto submit
+            setShowWarning(true);
+            setTimeout(() => setShowWarning(false), 3000);
+            submitQuiz();
+            return newCount;
+          }
+          
+          return newCount;
+        });
       }
     };
 
@@ -432,6 +681,22 @@ const IntegratedQuizApp = () => {
       margin: '5px',
       transition: 'all 0.3s ease',
       opacity: loading ? 0.7 : 1
+    },
+    // NEW: CSV Export Button Style
+    csvButton: {
+      background: 'linear-gradient(45deg, #4CAF50, #45a049)',
+      color: 'white',
+      border: 'none',
+      padding: '10px 20px',
+      borderRadius: '20px',
+      cursor: 'pointer',
+      fontSize: '14px',
+      fontWeight: 'bold',
+      margin: '5px',
+      transition: 'all 0.3s ease',
+      display: 'inline-flex',
+      alignItems: 'center',
+      gap: '8px'
     },
     input: {
       width: '100%',
@@ -537,6 +802,15 @@ const IntegratedQuizApp = () => {
       display: 'inline-block',
       marginLeft: '10px',
       fontSize: '16px'
+    },
+    // NEW: Results header style
+    resultsHeader: {
+      display: 'flex',
+      justifyContent: 'space-between',
+      alignItems: 'center',
+      marginBottom: '20px',
+      flexWrap: 'wrap',
+      gap: '10px'
     }
   };
 
@@ -661,121 +935,287 @@ const IntegratedQuizApp = () => {
       );
     }
 
-    // Create Quiz Section
-    if (activeAdminSection === 'create') {
-      const currentSession = quizSessions.find(s => s.sessionId === currentSessionId);
-      
-      return (
-        <div style={styles.container}>
-          <div style={styles.card}>
-            <LoadingError />
-            <button style={{...styles.button, marginBottom: '20px'}} onClick={() => setActiveAdminSection(null)} disabled={loading}>
-              ← Back to Dashboard
+   // Create Quiz Section - Both Manual Entry AND CSV Upload
+if (activeAdminSection === 'create') {
+  const currentSession = quizSessions.find(s => s.sessionId === currentSessionId);
+  
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <LoadingError />
+        <button style={{...styles.button, marginBottom: '20px'}} onClick={() => setActiveAdminSection(null)} disabled={loading}>
+          ← Back to Dashboard
+        </button>
+        
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <h2>Create Quiz: {currentSession?.name}</h2>
+          <p style={{ color: '#666', fontSize: '18px' }}>Quiz Code: <strong>{currentSessionId}</strong></p>
+        </div>
+        
+        {/* Method Selection Toggle */}
+        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+          <div style={{ display: 'inline-flex', background: '#f0f0f0', borderRadius: '25px', padding: '5px' }}>
+            <button
+              style={{
+                ...styles.button,
+                background: entryMethod === 'manual' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
+                color: entryMethod === 'manual' ? 'white' : '#666',
+                border: 'none',
+                borderRadius: '20px',
+                margin: '0 5px',
+                padding: '10px 20px'
+              }}
+              onClick={() => setEntryMethod('manual')}
+              disabled={loading}
+            >
+              ✏️ Manual Entry
             </button>
-            
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-              <h2>Create Quiz: {currentSession?.name}</h2>
-              <p style={{ color: '#666', fontSize: '18px' }}>Quiz Code: <strong>{currentSessionId}</strong></p>
+            <button
+              style={{
+                ...styles.button,
+                background: entryMethod === 'csv' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
+                color: entryMethod === 'csv' ? 'white' : '#666',
+                border: 'none',
+                borderRadius: '20px',
+                margin: '0 5px',
+                padding: '10px 20px'
+              }}
+              onClick={() => setEntryMethod('csv')}
+              disabled={loading}
+            >
+              📊 CSV Upload
+            </button>
+          </div>
+        </div>
+        
+        {/* Manual Entry Section */}
+        {entryMethod === 'manual' && (
+          <div style={{ marginBottom: '30px', padding: '20px', background: '#f9f9f9', borderRadius: '15px' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '2.5rem', marginBottom: '10px' }}>✏️</div>
+              <h3 style={{ color: '#667eea' }}>Add Questions Manually</h3>
             </div>
             
-            <div style={{ marginBottom: '30px' }}>
+            <input
+              type="text"
+              value={questionText}
+              onChange={(e) => setQuestionText(e.target.value)}
+              placeholder="Enter your question"
+              style={styles.input}
+              disabled={loading}
+            />
+            
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
               <input
                 type="text"
-                value={questionText}
-                onChange={(e) => setQuestionText(e.target.value)}
-                placeholder="Enter your question"
+                value={optionA}
+                onChange={(e) => setOptionA(e.target.value)}
+                placeholder="Option A"
                 style={styles.input}
                 disabled={loading}
               />
-              
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                <input
-                  type="text"
-                  value={optionA}
-                  onChange={(e) => setOptionA(e.target.value)}
-                  placeholder="Option A"
-                  style={styles.input}
-                  disabled={loading}
-                />
-                <input
-                  type="text"
-                  value={optionB}
-                  onChange={(e) => setOptionB(e.target.value)}
-                  placeholder="Option B"
-                  style={styles.input}
-                  disabled={loading}
-                />
-                <input
-                  type="text"
-                  value={optionC}
-                  onChange={(e) => setOptionC(e.target.value)}
-                  placeholder="Option C"
-                  style={styles.input}
-                  disabled={loading}
-                />
-                <input
-                  type="text"
-                  value={optionD}
-                  onChange={(e) => setOptionD(e.target.value)}
-                  placeholder="Option D"
-                  style={styles.input}
-                  disabled={loading}
-                />
-              </div>
-              
-              <select
-                value={correctOption}
-                onChange={(e) => setCorrectOption(e.target.value)}
-                style={styles.select}
+              <input
+                type="text"
+                value={optionB}
+                onChange={(e) => setOptionB(e.target.value)}
+                placeholder="Option B"
+                style={styles.input}
                 disabled={loading}
-              >
-                <option value="">Select Correct Answer</option>
-                <option value="A">Option A</option>
-                <option value="B">Option B</option>
-                <option value="C">Option C</option>
-                <option value="D">Option D</option>
-              </select>
-              
-              <div style={{ textAlign: 'center', margin: '20px 0' }}>
-                <button style={styles.button} onClick={handleAddQuestion} disabled={loading}>
-                  {loading ? 'Adding...' : 'Add Question'}
-                </button>
+              />
+              <input
+                type="text"
+                value={optionC}
+                onChange={(e) => setOptionC(e.target.value)}
+                placeholder="Option C"
+                style={styles.input}
+                disabled={loading}
+              />
+              <input
+                type="text"
+                value={optionD}
+                onChange={(e) => setOptionD(e.target.value)}
+                placeholder="Option D"
+                style={styles.input}
+                disabled={loading}
+              />
+            </div>
+            
+            <select
+              value={correctOption}
+              onChange={(e) => setCorrectOption(e.target.value)}
+              style={styles.select}
+              disabled={loading}
+            >
+              <option value="">Select Correct Answer</option>
+              <option value="A">Option A</option>
+              <option value="B">Option B</option>
+              <option value="C">Option C</option>
+              <option value="D">Option D</option>
+            </select>
+            
+            <div style={{ textAlign: 'center', margin: '20px 0' }}>
+              <button style={styles.button} onClick={handleAddQuestion} disabled={loading}>
+                {loading ? 'Adding...' : '➕ Add Question'}
+              </button>
+            </div>
+          </div>
+        )}
+        
+        {/* CSV Upload Section */}
+        {entryMethod === 'csv' && (
+          <div style={{ marginBottom: '30px', padding: '25px', background: '#f0f8ff', borderRadius: '15px', border: '2px dashed #667eea' }}>
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <div style={{ fontSize: '3rem', marginBottom: '15px' }}>📊</div>
+              <h3 style={{ color: '#667eea', marginBottom: '15px' }}>Upload Questions via CSV</h3>
+            </div>
+            
+            <div style={{ marginBottom: '20px', padding: '15px', background: '#fff', borderRadius: '10px', border: '1px solid #ddd' }}>
+              <p style={{ color: '#333', marginBottom: '10px', fontWeight: 'bold' }}>
+                📋 Required CSV Format:
+              </p>
+              <p style={{ color: '#666', marginBottom: '10px', fontFamily: 'monospace', fontSize: '14px' }}>
+                Question, Option A, Option B, Option C, Option D, Correct Answer
+              </p>
+              <p style={{ color: '#666', fontSize: '14px' }}>
+                • Correct Answer should be: A, B, C, or D<br />
+                • All fields are required<br />
+                • First row should contain column headers
+              </p>
+            </div>
+            
+            <input
+              type="file"
+              accept=".csv"
+              onChange={handleCsvFileSelect}
+              style={{
+                ...styles.input, 
+                padding: '15px',
+                border: '2px dashed #667eea',
+                background: '#fff',
+                cursor: 'pointer'
+              }}
+              disabled={loading}
+            />
+            
+            {/* Error Display */}
+            {csvErrors.length > 0 && (
+              <div style={{
+                marginTop: '20px',
+                padding: '15px',
+                background: '#f8d7da',
+                borderRadius: '10px',
+                border: '1px solid #f5c6cb'
+              }}>
+                <h4 style={{ color: '#721c24', marginBottom: '10px' }}>❌ Errors Found:</h4>
+                <ul style={{ color: '#721c24', margin: '0', paddingLeft: '20px' }}>
+                  {csvErrors.map((error, index) => (
+                    <li key={index}>{error}</li>
+                  ))}
+                </ul>
               </div>
-            </div>
+            )}
             
-            <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '30px' }}>
-              <button style={styles.button} onClick={handleGenerateLink} disabled={loading}>Get Quiz Code</button>
-              <button style={{...styles.button, background: 'linear-gradient(45deg, #4CAF50, #45a049)'}} onClick={handleStartQuiz} disabled={loading}>
-                {loading ? 'Starting...' : 'Start Quiz'}
-              </button>
-              <button style={{...styles.button, background: 'linear-gradient(45deg, #f44336, #da190b)'}} onClick={handleEndQuiz} disabled={loading}>
-                {loading ? 'Ending...' : 'End Quiz'}
-              </button>
-            </div>
-            
-            {currentSession && currentSession.questions && currentSession.questions.length > 0 && (
-              <div>
-                <h3>Questions Added ({currentSession.questions.length})</h3>
-                {currentSession.questions.map((q, index) => (
-                  <div key={index} style={styles.questionCard}>
-                    <strong>Q{index + 1}:</strong> {q.question}<br />
-                    <div style={{ marginTop: '10px' }}>
-                      A) {q.options.a}<br />
-                      B) {q.options.b}<br />
-                      C) {q.options.c}<br />
-                      D) {q.options.d}<br />
-                      <strong style={{ color: '#4CAF50' }}>Correct: {q.correct}</strong>
+            {/* Preview Section */}
+            {showCsvPreview && (
+              <div style={{ marginTop: '20px' }}>
+                <h4 style={{ color: '#333', marginBottom: '15px' }}>
+                  📝 Preview ({csvPreview.length} questions found)
+                  {csvErrors.length === 0 && <span style={{ color: '#4CAF50', marginLeft: '10px' }}>✅ Ready to upload</span>}
+                </h4>
+                
+                <div style={{ 
+                  maxHeight: '350px', 
+                  overflowY: 'auto', 
+                  border: '1px solid #ddd', 
+                  borderRadius: '10px',
+                  background: '#fff'
+                }}>
+                  {csvPreview.slice(0, 3).map((q, index) => (
+                    <div key={index} style={{
+                      ...styles.questionCard, 
+                      margin: '15px',
+                      borderLeft: csvErrors.length === 0 ? '4px solid #4CAF50' : '4px solid #f44336'
+                    }}>
+                      <strong>Q{index + 1}:</strong> {q.question}<br />
+                      <div style={{ marginTop: '10px', fontSize: '14px' }}>
+                        <strong>A)</strong> {q.options.a}<br />
+                        <strong>B)</strong> {q.options.b}<br />
+                        <strong>C)</strong> {q.options.c}<br />
+                        <strong>D)</strong> {q.options.d}<br />
+                        <strong style={{ color: '#4CAF50' }}>Correct: {q.correct}</strong>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  ))}
+                  {csvPreview.length > 3 && (
+                    <p style={{ textAlign: 'center', color: '#666', padding: '15px', fontStyle: 'italic' }}>
+                      ... and {csvPreview.length - 3} more questions
+                    </p>
+                  )}
+                </div>
+                
+                <div style={{ textAlign: 'center', marginTop: '25px' }}>
+                  <button 
+                    style={{
+                      ...styles.button, 
+                      background: csvErrors.length === 0 ? 'linear-gradient(45deg, #4CAF50, #45a049)' : 'gray',
+                      marginRight: '15px',
+                      cursor: csvErrors.length === 0 ? 'pointer' : 'not-allowed'
+                    }} 
+                    onClick={handleCsvUpload}
+                    disabled={loading || csvErrors.length > 0}
+                  >
+                    {loading ? 'Uploading...' : `📤 Upload ${csvPreview.length} Questions`}
+                  </button>
+                  <button 
+                    style={{...styles.button, background: 'linear-gradient(45deg, #f44336, #da190b)'}} 
+                    onClick={clearCsvUpload}
+                    disabled={loading}
+                  >
+                    🗑️ Clear
+                  </button>
+                </div>
               </div>
             )}
           </div>
+        )}
+        
+        {/* Quiz Control Buttons */}
+        <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '30px' }}>
+          <button style={styles.button} onClick={handleGenerateLink} disabled={loading}>🔗 Get Quiz Code</button>
+          <button style={{...styles.button, background: 'linear-gradient(45deg, #4CAF50, #45a049)'}} onClick={handleStartQuiz} disabled={loading}>
+            {loading ? 'Starting...' : '▶️ Start Quiz'}
+          </button>
+          <button style={{...styles.button, background: 'linear-gradient(45deg, #f44336, #da190b)'}} onClick={handleEndQuiz} disabled={loading}>
+            {loading ? 'Ending...' : '⏹️ End Quiz'}
+          </button>
         </div>
-      );
-    }
+        
+        {/* Display Current Questions */}
+        {currentSession && currentSession.questions && currentSession.questions.length > 0 && (
+          <div>
+            <h3>Questions Added ({currentSession.questions.length})</h3>
+            <div style={{ maxHeight: '400px', overflowY: 'auto' }}>
+              {currentSession.questions.map((q, index) => (
+                <div key={index} style={styles.questionCard}>
+                  <strong>Q{index + 1}:</strong> {q.question}<br />
+                  <div style={{ marginTop: '10px' }}>
+                    A) {q.options.a}<br />
+                    B) {q.options.b}<br />
+                    C) {q.options.c}<br />
+                    D) {q.options.d}<br />
+                    <strong style={{ color: '#4CAF50' }}>Correct: {q.correct}</strong>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
 
-    // Results Section
+    // Results Section - UPDATED WITH CSV EXPORT
     if (activeAdminSection === 'results') {
       return (
         <div style={styles.container}>
@@ -785,7 +1225,19 @@ const IntegratedQuizApp = () => {
               ← Back to Dashboard
             </button>
             
-            <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>Quiz Results</h2>
+            <div style={styles.resultsHeader}>
+              <h2>Quiz Results</h2>
+              {resultSessionCode && studentResults.length > 0 && (
+                <button 
+                  style={styles.csvButton} 
+                  onClick={handleExportCSV}
+                  disabled={loading}
+                  title="Export results to CSV file"
+                >
+                  📊 Export CSV
+                </button>
+              )}
+            </div>
             
             <input
               type="text"
@@ -799,7 +1251,14 @@ const IntegratedQuizApp = () => {
             <div style={{ marginTop: '30px' }}>
               {resultSessionCode && (
                 <div>
-                  <h3>Results for: {resultSessionCode}</h3>
+                  <div style={styles.resultsHeader}>
+                    <h3>Results for: {resultSessionCode}</h3>
+                    {studentResults.length > 0 && (
+                      <div style={{ fontSize: '14px', color: '#666' }}>
+                        📈 Average Score: {Math.round(studentResults.reduce((sum, result) => sum + result.percentage, 0) / studentResults.length)}%
+                      </div>
+                    )}
+                  </div>
                   {studentResults.length > 0 ? (
                     <div>
                       <p style={{ color: '#666', marginBottom: '20px' }}>
@@ -811,17 +1270,67 @@ const IntegratedQuizApp = () => {
                           padding: '20px',
                           margin: '15px 0',
                           borderRadius: '10px',
-                          borderLeft: '4px solid #4CAF50'
+                          borderLeft: `4px solid ${result.percentage >= 70 ? '#4CAF50' : result.percentage >= 50 ? '#ff9800' : '#f44336'}`
                         }}>
                           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px' }}>
                             <div><strong>Name:</strong> {result.studentName}</div>
                             <div><strong>Reg No:</strong> {result.regNo}</div>
                             <div><strong>Department:</strong> {result.department}</div>
-                            <div><strong>Score:</strong> {result.score}/{result.totalQuestions} ({result.percentage}%)</div>
+                            <div>
+                              <strong>Score:</strong> {result.score}/{result.totalQuestions} ({result.percentage}%)
+                              <span style={{ 
+                                marginLeft: '10px', 
+                                padding: '2px 8px', 
+                                borderRadius: '12px', 
+                                fontSize: '12px', 
+                                fontWeight: 'bold',
+                                background: result.percentage >= 90 ? '#4CAF50' : 
+                                           result.percentage >= 80 ? '#8BC34A' :
+                                           result.percentage >= 70 ? '#FFC107' :
+                                           result.percentage >= 60 ? '#FF9800' :
+                                           result.percentage >= 50 ? '#FF5722' : '#f44336',
+                                color: 'white'
+                              }}>
+                                {getGradeFromPercentage(result.percentage)}
+                              </span>
+                            </div>
                             <div><strong>Submitted:</strong> {new Date(result.submittedAt).toLocaleString()}</div>
                           </div>
                         </div>
                       ))}
+                      
+                      {/* Summary Statistics */}
+                      <div style={{
+                        background: '#e3f2fd',
+                        padding: '20px',
+                        borderRadius: '10px',
+                        marginTop: '20px',
+                        borderLeft: '4px solid #2196F3'
+                      }}>
+                        <h4 style={{ margin: '0 0 15px 0', color: '#1976D2' }}>📊 Summary Statistics</h4>
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: '15px' }}>
+                          <div>
+                            <strong>Total Students:</strong><br />
+                            {studentResults.length}
+                          </div>
+                          <div>
+                            <strong>Average Score:</strong><br />
+                            {Math.round(studentResults.reduce((sum, result) => sum + result.percentage, 0) / studentResults.length)}%
+                          </div>
+                          <div>
+                            <strong>Highest Score:</strong><br />
+                            {Math.max(...studentResults.map(r => r.percentage))}%
+                          </div>
+                          <div>
+                            <strong>Lowest Score:</strong><br />
+                            {Math.min(...studentResults.map(r => r.percentage))}%
+                          </div>
+                          <div>
+                            <strong>Pass Rate:</strong><br />
+                            {Math.round((studentResults.filter(r => r.percentage >= 50).length / studentResults.length) * 100)}%
+                          </div>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <p style={{ textAlign: 'center', color: '#666', marginTop: '20px' }}>
@@ -893,10 +1402,13 @@ const IntegratedQuizApp = () => {
 
   // Student Panel
   if (currentView === 'student') {
-    // Warning Banner
+    // UPDATED: Warning Banner with different messages based on tab switch count
     const warningBanner = showWarning && (
       <div style={styles.warningBanner}>
-        ⚠️ Do not try to leave this page or switch tabs. Your quiz will be automatically submitted!
+        {tabSwitchCount === 1 
+          ? "⚠️ WARNING: Do not switch tabs! Next time your quiz will be auto-submitted!"
+          : "⚠️ QUIZ AUTO-SUBMITTED: You switched tabs multiple times!"
+        }
       </div>
     );
 
@@ -1004,7 +1516,8 @@ const IntegratedQuizApp = () => {
                 <strong style={{ color: '#856404' }}>⚠️ Important Instructions:</strong>
                 <ul style={{ margin: '10px 0', paddingLeft: '20px', color: '#856404' }}>
                   <li>Do not refresh the page or switch tabs during the quiz</li>
-                  <li>Your quiz will be auto-submitted if you leave the page</li>
+                  <li>First tab switch will show a warning</li>
+                  <li>Second tab switch will auto-submit your quiz</li>
                   <li>You have 30 minutes to complete the quiz</li>
                   <li>All fields are mandatory</li>
                 </ul>
@@ -1037,6 +1550,23 @@ const IntegratedQuizApp = () => {
             
             <div style={{ textAlign: 'center', marginBottom: '20px' }}>
               <h3>Question {currentQuestion + 1} of {currentQuiz.questions.length}</h3>
+              {/* UPDATED: Show tab switch warning */}
+              {tabSwitchCount > 0 && (
+                <div style={{ 
+                  background: tabSwitchCount === 1 ? '#fff3cd' : '#f8d7da',
+                  color: tabSwitchCount === 1 ? '#856404' : '#721c24',
+                  padding: '10px',
+                  borderRadius: '5px',
+                  margin: '10px 0',
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}>
+                  {tabSwitchCount === 1 
+                    ? "⚠️ Warning: 1 tab switch detected. Next switch will auto-submit!"
+                    : "❌ Multiple tab switches detected. Quiz will be submitted automatically."
+                  }
+                </div>
+              )}
             </div>
             
             {/* Question */}
