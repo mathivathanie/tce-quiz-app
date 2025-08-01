@@ -107,19 +107,116 @@ const studentResultSchema = new mongoose.Schema({
     min: 0,
     max: 100
   },
+  isAutoSubmit: {
+    type: Boolean,
+    default: false
+  },
+  violationType: {
+    type: String,
+    enum: ['tab_switch_violation', 'time_expired', 'manual_submit', null],
+    default: null
+  },
+  isResumed: {
+    type: Boolean,
+    default: false
+  },
+  timeSpent: {
+    type: Number,
+    default: 0
+  },
   submittedAt: {
     type: Date,
     default: Date.now
   }
 });
 
+// Add this new schema after studentResultSchema
+const quizViolationSchema = new mongoose.Schema({
+  sessionId: {
+    type: String,
+    required: true,
+    uppercase: true
+  },
+  studentName: {
+    type: String,
+    required: true
+  },
+  regNo: {
+    type: String,
+    required: true,
+    uppercase: true
+  },
+  department: {
+    type: String,
+    required: true
+  },
+  violationType: {
+    type: String,
+    required: true,
+    enum: ['tab_switch_violation', 'time_expired', 'suspicious_activity']
+  },
+  currentQuestion: {
+    type: Number,
+    required: true
+  },
+  userAnswers: [{
+    type: String,
+    enum: ['A', 'B', 'C', 'D', null]
+  }],
+  timeLeft: {
+    type: Number,
+    required: true
+  },
+  timeSpent: {
+    type: Number,
+    default: 0
+  },
+  tabSwitchCount: {
+    type: Number,
+    default: 0
+  },
+  resumeToken: {
+    type: String,
+    default: null
+  },
+  restartToken: {
+    type: String,
+    default: null
+  },
+  isResolved: {
+    type: Boolean,
+    default: false
+  },
+  resolvedAt: {
+    type: Date,
+    default: null
+  },
+  adminAction: {
+    type: String,
+    enum: ['resume_approved', 'restart_approved', 'pending'],
+    default: 'pending'
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+});
+
+
 // Models
 const QuizSession = mongoose.model('QuizSession', quizSessionSchema);
 const StudentResult = mongoose.model('StudentResult', studentResultSchema);
+const QuizViolation = mongoose.model('QuizViolation', quizViolationSchema);
 
 // Helper function to generate session ID
 const generateSessionId = () => {
   return 'QUIZ' + Math.random().toString(36).substr(2, 6).toUpperCase();
+};
+
+// ADD THIS RIGHT HERE - after generateSessionId function (around line 126)
+const generateSecureToken = () => {
+  return 'TOK_' + Math.random().toString(36).substr(2, 12).toUpperCase() + 
+         '_' + Date.now().toString(36).toUpperCase();
 };
 
 // Routes
@@ -420,7 +517,11 @@ app.post('/api/quiz-results', async (req, res) => {
       answers, 
       score, 
       totalQuestions, 
-      percentage 
+      percentage,
+      isAutoSubmit = false,        // ADD THIS
+      violationType = null,        // ADD THIS  
+      isResumed = false,          // ADD THIS
+      timeSpent = 0  
     } = req.body;
     
     // Validation
@@ -461,7 +562,11 @@ app.post('/api/quiz-results', async (req, res) => {
       answers,
       score,
       totalQuestions,
-      percentage
+      percentage,
+      isAutoSubmit,              // ADD THIS
+      violationType,             // ADD THIS
+      isResumed,                 // ADD THIS
+      timeSpent
     });
     
     const savedResult = await newResult.save();
@@ -671,7 +776,291 @@ app.post('/api/quiz-sessions/:sessionId/questions/csv', async (req, res) => {
   }
 });
 
+// ADD ALL THESE ROUTES RIGHT HERE - after line 656, before error handling
 
+// POST /api/quiz-violations - Save violation when student violates rules
+app.post('/api/quiz-violations', async (req, res) => {
+  try {
+    const {
+      sessionId,
+      studentName,
+      regNo,
+      department,
+      violationType,
+      currentQuestion,
+      userAnswers,
+      timeLeft,
+      timeSpent,
+      tabSwitchCount
+    } = req.body;
+
+    if (!sessionId || !studentName || !regNo || !department || !violationType) {
+      return res.status(400).json({
+        message: 'Required fields missing'
+      });
+    }
+
+    const session = await QuizSession.findOne({
+      sessionId: sessionId.toUpperCase()
+    });
+
+    if (!session) {
+      return res.status(404).json({
+        message: 'Quiz session not found'
+      });
+    }
+
+    const newViolation = new QuizViolation({
+      sessionId: sessionId.toUpperCase(),
+      studentName,
+      regNo: regNo.toUpperCase(),
+      department,
+      violationType,
+      currentQuestion,
+      userAnswers,
+      timeLeft,
+      timeSpent: timeSpent || 0,
+      tabSwitchCount: tabSwitchCount || 0
+    });
+
+    const savedViolation = await newViolation.save();
+
+    res.status(201).json({
+      message: 'Violation recorded successfully',
+      violationId: savedViolation._id,
+      violation: savedViolation
+    });
+  } catch (error) {
+    console.error('Save violation error:', error);
+    res.status(500).json({
+      message: 'Error saving violation',
+      error: error.message
+    });
+  }
+});
+
+// GET /api/quiz-violations/:sessionId
+app.get('/api/quiz-violations/:sessionId', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+
+    if (!sessionId) {
+      return res.status(400).json({
+        message: 'Session ID is required'
+      });
+    }
+
+    const violations = await QuizViolation.find({
+      sessionId: sessionId.toUpperCase()
+    })
+    .sort({ createdAt: -1 })
+    .select('-__v');
+
+    res.json(violations);
+  } catch (error) {
+    console.error('Get violations error:', error);
+    res.status(500).json({
+      message: 'Error fetching violations',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/quiz-violations/:violationId/resume
+app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
+  try {
+    const violationId = req.params.violationId;
+
+    const violation = await QuizViolation.findById(violationId);
+
+    if (!violation) {
+      return res.status(404).json({
+        message: 'Violation not found'
+      });
+    }
+
+    if (violation.isResolved) {
+      return res.status(400).json({
+        message: 'Violation already resolved'
+      });
+    }
+
+    const resumeToken = generateSecureToken();
+
+    violation.resumeToken = resumeToken;
+    violation.adminAction = 'resume_approved';
+    await violation.save();
+
+    res.json({
+      message: 'Resume token generated successfully',
+      resumeToken: resumeToken,
+      violation: violation
+    });
+  } catch (error) {
+    console.error('Generate resume token error:', error);
+    res.status(500).json({
+      message: 'Error generating resume token',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/quiz-violations/:violationId/restart
+app.post('/api/quiz-violations/:violationId/restart', async (req, res) => {
+  try {
+    const violationId = req.params.violationId;
+
+    const violation = await QuizViolation.findById(violationId);
+
+    if (!violation) {
+      return res.status(404).json({
+        message: 'Violation not found'
+      });
+    }
+
+    if (violation.isResolved) {
+      return res.status(400).json({
+        message: 'Violation already resolved'
+      });
+    }
+
+    const restartToken = generateSecureToken();
+
+    violation.restartToken = restartToken;
+    violation.adminAction = 'restart_approved';
+    await violation.save();
+
+    res.json({
+      success: true,
+      message: 'Restart token generated successfully',
+      restartToken: restartToken,
+      violation: violation
+    });
+  } catch (error) {
+    console.error('Generate restart token error:', error);
+    res.status(500).json({
+      message: 'Error generating restart token',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/quiz-resume
+app.post('/api/quiz-resume', async (req, res) => {
+  try {
+    const { resumeToken } = req.body;
+
+    if (!resumeToken) {
+      return res.status(400).json({
+        message: 'Resume token is required'
+      });
+    }
+
+    const violation = await QuizViolation.findOne({
+      $or: [
+        { resumeToken: resumeToken },
+        { restartToken: resumeToken }
+      ]
+    });
+
+    if (!violation) {
+      return res.status(404).json({
+        message: 'Invalid or expired token'
+      });
+    }
+
+    if (violation.isResolved) {
+      return res.status(400).json({
+        message: 'Token already used'
+      });
+    }
+
+    const session = await QuizSession.findOne({
+      sessionId: violation.sessionId
+    });
+
+    if (!session || !session.isActive) {
+      return res.status(400).json({
+        message: 'Quiz session not active'
+      });
+    }
+
+    violation.isResolved = true;
+    violation.resolvedAt = new Date();
+    await violation.save();
+
+    if (violation.resumeToken === resumeToken) {
+      res.json({
+        success: true,
+        actionType: 'resume',
+        quizData: session,
+        studentInfo: {
+          name: violation.studentName,
+          regNo: violation.regNo,
+          department: violation.department
+        },
+        currentQuestion: violation.currentQuestion,
+        userAnswers: violation.userAnswers,
+        timeLeft: violation.timeLeft
+      });
+    } else if (violation.restartToken === resumeToken) {
+      res.json({
+        success: true,
+        actionType: 'restart',
+        quizData: session,
+        studentInfo: {
+          name: violation.studentName,
+          regNo: violation.regNo,
+          department: violation.department
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Resume quiz error:', error);
+    res.status(500).json({
+      message: 'Error resuming quiz',
+      error: error.message
+    });
+  }
+});
+
+// POST /api/quiz-violations/check-pending
+app.post('/api/quiz-violations/check-pending', async (req, res) => {
+  try {
+    const { studentName, regNo, sessionId } = req.body;
+
+    if (!studentName || !regNo || !sessionId) {
+      return res.status(400).json({
+        message: 'Student name, registration number, and session ID are required'
+      });
+    }
+
+    const pendingViolation = await QuizViolation.findOne({
+      sessionId: sessionId.toUpperCase(),
+      regNo: regNo.toUpperCase(),
+      isResolved: false
+    });
+
+    if (pendingViolation) {
+      res.json({
+        hasPendingViolation: true,
+        violationId: pendingViolation._id,
+        violationType: pendingViolation.violationType,
+        violation: pendingViolation
+      });
+    } else {
+      res.json({
+        hasPendingViolation: false
+      });
+    }
+  } catch (error) {
+    console.error('Check pending violation error:', error);
+    res.status(500).json({
+      message: 'Error checking pending violations',
+      error: error.message
+    });
+  }
+});
 
 // Error handling middleware
 app.use((err, req, res, next) => {
