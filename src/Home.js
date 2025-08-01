@@ -48,6 +48,20 @@ const [csvErrors, setCsvErrors] = useState([]);
   const [showWarning, setShowWarning] = useState(false);
   const [tabSwitchCount, setTabSwitchCount] = useState(0); // NEW: Track tab switches
 
+// ENHANCED: Quiz violations and resume states (ADD THESE)
+const [quizViolations, setQuizViolations] = useState([]);
+const [violationSessionCode, setViolationSessionCode] = useState('');
+const [selectedViolation, setSelectedViolation] = useState(null);
+const [showViolationDetails, setShowViolationDetails] = useState(false);
+
+// Student resume states (ADD THESE)
+const [resumeToken, setResumeToken] = useState('');
+const [isResuming, setIsResuming] = useState(false);
+const [suspensionMessage, setSuspensionMessage] = useState('');
+const [violationId, setViolationId] = useState(null);
+const [originalTimeAllotted, setOriginalTimeAllotted] = useState(30 * 60);
+const [timeSpent, setTimeSpent] = useState(0);
+
   // NEW: CSV Export Function
   const exportToCSV = (data, filename) => {
     if (!data || data.length === 0) {
@@ -455,6 +469,71 @@ const clearCsvUpload = () => {
     }
   };
 
+ // ENHANCED: Load quiz violations
+const loadQuizViolations = async (sessionId) => {
+  try {
+    setLoading(true); // Add this line
+    const violations = await apiCall(`/api/quiz-violations/${sessionId}`);
+    setQuizViolations(violations);
+    setLoading(false); // Add this line
+  } catch (error) {
+    setLoading(false); // Add this line
+    alert('Failed to load violations: ' + error.message);
+  }
+};
+
+// ENHANCED: Generate resume token for student
+const handleGenerateResumeToken = async (violationId) => {
+  try {
+    const response = await apiCall(`/api/quiz-violations/${violationId}/resume`, 'POST');
+    alert(`Resume token generated successfully!\nToken: ${response.resumeToken}\n\nShare this token with the student to resume their quiz.`);
+    
+    // Refresh violations list
+    if (violationSessionCode) {
+      await loadQuizViolations(violationSessionCode);
+    }
+  } catch (error) {
+    alert('Failed to generate resume token: ' + error.message);
+  }
+};
+
+// ENHANCED: Admin restart specific student's quiz
+const handleRestartStudentQuiz = async (violation) => {
+  const confirmRestart = window.confirm(
+    `Are you sure you want to restart the quiz for ${violation.studentName} (${violation.regNo})?\n\n` +
+    `This will:\n` +
+    `• Allow them to restart from question 1\n` +
+    `• Give them full time allocation\n` +
+    `• Reset their violation count\n` +
+    `• Mark this violation as resolved`
+  );
+
+  if (!confirmRestart) return;
+
+  try {
+    const response = await apiCall(`/api/quiz-violations/${violation._id}/restart`, 'POST', {
+      adminAction: true,
+      restartReason: 'Admin approved restart due to violations'
+    });
+
+    if (response.success) {
+      alert(
+        `Quiz restart approved for ${violation.studentName}!\n\n` +
+        `Restart Token: ${response.restartToken}\n\n` +
+        `Please share this token with the student.`
+      );
+      
+      // Refresh violations list
+      if (violationSessionCode) {
+        await loadQuizViolations(violationSessionCode);
+      }
+    }
+  } catch (error) {
+    alert('Failed to approve quiz restart: ' + error.message);
+  }
+};
+
+
   // Start student quiz
   const startStudentQuiz = () => {
     if (!studentInfo.name.trim() || !studentInfo.regNo.trim() || !studentInfo.department) {
@@ -490,16 +569,41 @@ const clearCsvUpload = () => {
       setCurrentQuestion(prev => prev - 1);
     }
   };
+// ENHANCED: Submit quiz with violation handling
+const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null) => {
+  if (!currentQuiz) return;
+  
+  try {
+    const correctAnswers = userAnswers.reduce((count, answer, index) => {
+      return answer === currentQuiz.questions[index].correct ? count + 1 : count;
+    }, 0);
 
-  // Submit quiz results
-  const submitQuiz = useCallback(async () => {
-    if (!currentQuiz) return;
-    
-    try {
-      const correctAnswers = userAnswers.reduce((count, answer, index) => {
-        return answer === currentQuiz.questions[index].correct ? count + 1 : count;
-      }, 0);
+    // If auto-submitted due to violations, save as violation instead of regular result
+    if (isAutoSubmit && violationType) {
+      const violationData = {
+        sessionId: currentQuiz.sessionId,
+        studentName: studentInfo.name,
+        regNo: studentInfo.regNo,
+        department: studentInfo.department,
+        currentQuestion,
+        userAnswers,
+        timeLeft,
+        violationType,
+        tabSwitchCount,
+        timeSpent: originalTimeAllotted - timeLeft
+      };
 
+      const response = await apiCall('/api/quiz-violations', 'POST', violationData);
+      
+      setViolationId(response.violationId);
+      setStudentView('waitingForAdmin');
+      setSuspensionMessage(
+        `Your quiz has been suspended due to ${violationType.replace('_', ' ')}.\n\n` +
+        `Please contact your instructor for assistance.`
+      );
+    }
+  else {
+      // Regular submission
       const resultData = {
         sessionId: currentQuiz.sessionId,
         studentName: studentInfo.name,
@@ -508,15 +612,19 @@ const clearCsvUpload = () => {
         answers: userAnswers,
         score: correctAnswers,
         totalQuestions: currentQuiz.questions.length,
-        percentage: Math.round((correctAnswers / currentQuiz.questions.length) * 100)
+        percentage: Math.round((correctAnswers / currentQuiz.questions.length) * 100),
+        isAutoSubmit,
+        isResumed: isResuming,
+        timeSpent: originalTimeAllotted - timeLeft
       };
 
       await apiCall('/api/quiz-results', 'POST', resultData);
       setStudentView('result');
-    } catch (error) {
-      alert('Failed to submit quiz: ' + error.message);
     }
-  }, [userAnswers, currentQuiz, studentInfo]);
+  } catch (error) {
+    alert('Failed to submit quiz: ' + error.message);
+  }
+}, [userAnswers, currentQuiz, studentInfo, currentQuestion, timeLeft, tabSwitchCount, isResuming, originalTimeAllotted]);
 
   // Restart student session
   const restartStudent = () => {
@@ -536,6 +644,13 @@ const clearCsvUpload = () => {
       loadSessionResults(resultSessionCode);
     }
   }, [resultSessionCode, activeAdminSection]);
+
+  // Load violations when violation session code changes
+useEffect(() => {
+  if (violationSessionCode && activeAdminSection === 'violations') {
+    loadQuizViolations(violationSessionCode);
+  }
+}, [violationSessionCode, activeAdminSection]);
 
   // Timer effect for student quiz
   useEffect(() => {
@@ -583,7 +698,7 @@ const clearCsvUpload = () => {
             // Second or more tab switches - auto submit
             setShowWarning(true);
             setTimeout(() => setShowWarning(false), 3000);
-            submitQuiz();
+            submitQuiz(true, 'tab_switch_violation'); // ✅ Pass the required parameters
             return newCount;
           }
           
@@ -652,6 +767,76 @@ const clearCsvUpload = () => {
 
     return { correctAnswers, wrongAnswers, scorePercentage, grade };
   };
+
+// ENHANCED: Student resume quiz with token
+const handleResumeQuiz = async () => {
+  if (!resumeToken.trim()) {
+    alert('Please enter your resume token!');
+    return;
+  }
+
+  try {
+    const response = await apiCall('/api/quiz-resume', 'POST', {
+      resumeToken: resumeToken.trim()
+    });
+
+    if (response.success) {
+      if (response.actionType === 'resume') {
+        // Resume from where they left off
+        setCurrentQuiz(response.quizData);
+        setStudentInfo(response.studentInfo);
+        setCurrentQuestion(response.currentQuestion);
+        setUserAnswers(response.userAnswers);
+        setTimeLeft(response.timeLeft);
+        setTabSwitchCount(0);
+        setIsResuming(true);
+        setStudentView('quiz');
+        
+        alert('Quiz resumed successfully! You can continue from where you left off.');
+      } else if (response.actionType === 'restart') {
+        // Fresh restart
+        setCurrentQuiz(response.quizData);
+        setStudentInfo(response.studentInfo);
+        setCurrentQuestion(0);
+        setUserAnswers(new Array(response.quizData.questions.length).fill(null));
+        setTimeLeft(response.quizData.timeLimit || 30 * 60);
+        setOriginalTimeAllotted(response.quizData.timeLimit || 30 * 60);
+        setTabSwitchCount(0);
+        setIsResuming(true);
+        setStudentView('quiz');
+        
+        alert('Quiz restarted successfully! You have a fresh start.');
+      }
+    }
+  } catch (error) {
+    alert('Invalid or expired token. Please contact your instructor.');
+  }
+};
+
+// ENHANCED: Check for pending violations when student tries to join
+const checkPendingResume = async (studentName, regNo, sessionId) => {
+  try {
+    const response = await apiCall('/api/quiz-violations/check-pending', 'POST', {
+      studentName,
+      regNo,
+      sessionId
+    });
+
+    if (response.hasPendingViolation) {
+      setViolationId(response.violationId);
+      setStudentView('waitingForAdmin');
+      setSuspensionMessage(
+        `Your quiz was suspended due to ${response.violationType.replace('_', ' ')}.\n\n` +
+        `Please wait for your instructor to approve your quiz continuation.`
+      );
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error('Error checking pending resume:', error);
+    return false;
+  }
+};
 
   // Styles
   const styles = {
@@ -811,7 +996,36 @@ const clearCsvUpload = () => {
       marginBottom: '20px',
       flexWrap: 'wrap',
       gap: '10px'
-    }
+    },
+  
+violationCard: {
+  background: '#fff3cd',
+  padding: '20px',
+  margin: '15px 0',
+  borderRadius: '10px',
+  borderLeft: '4px solid #ffc107',
+  border: '1px solid #ffeaa7'
+},
+resumeButton: {
+  background: 'linear-gradient(45deg, #FF9800, #F57C00)',
+  color: 'white',
+  border: 'none',
+  padding: '8px 16px',
+  borderRadius: '15px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 'bold',
+  margin: '2px',
+  transition: 'all 0.3s ease'
+},
+waitingCard: {
+  background: '#e3f2fd',
+  padding: '30px',
+  borderRadius: '15px',
+  textAlign: 'center',
+  margin: '20px 0',
+  border: '2px solid #bbdefb'
+},
   };
 
   // Loading and Error Display Component
@@ -929,6 +1143,11 @@ const clearCsvUpload = () => {
                 <h3>Quiz Sessions</h3>
                 <button style={styles.button} onClick={() => setActiveAdminSection('sessions')} disabled={loading}>Manage</button>
               </div>
+              <div style={{ textAlign: 'center', padding: '30px', border: '2px solid #ddd', borderRadius: '15px', minWidth: '200px' }}>
+  <div style={{ fontSize: '3rem', marginBottom: '15px' }}>⚠️</div>
+  <h3>Quiz Violations</h3>
+  <button style={styles.button} onClick={() => setActiveAdminSection('violations')} disabled={loading}>View</button>
+</div>
             </div>
           </div>
         </div>
@@ -1398,6 +1617,168 @@ if (activeAdminSection === 'create') {
         </div>
       );
     }
+    // Quiz Violations Section - ADD THIS ENTIRE SECTION
+if (activeAdminSection === 'violations') {
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <LoadingError />
+        <button style={{...styles.button, marginBottom: '20px'}} onClick={() => setActiveAdminSection(null)} disabled={loading}>
+          ← Back to Dashboard
+        </button>
+        
+        <h2 style={{ textAlign: 'center', marginBottom: '30px' }}>Quiz Violations</h2>
+        
+        <input
+          type="text"
+          placeholder="Enter quiz code to view violations"
+          value={violationSessionCode}
+          onChange={(e) => setViolationSessionCode(e.target.value.toUpperCase())}
+          style={styles.input}
+          disabled={loading}
+        />
+        
+        <div style={{ marginTop: '30px' }}>
+          {violationSessionCode && (
+            <div>
+              <h3>Violations for: {violationSessionCode}</h3>
+              {quizViolations.length > 0 ? (
+                <div>
+                  <p style={{ color: '#666', marginBottom: '20px' }}>
+                    Total Violations: {quizViolations.length}
+                  </p>
+                  {quizViolations.map((violation, index) => (
+                    <div key={index} style={styles.violationCard}>
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '10px', marginBottom: '15px' }}>
+                        <div><strong>Name:</strong> {violation.studentName}</div>
+                        <div><strong>Reg No:</strong> {violation.regNo}</div>
+                        <div><strong>Department:</strong> {violation.department}</div>
+                        <div><strong>Violation Type:</strong> {violation.violationType.replace('_', ' ')}</div>
+                        <div><strong>Question:</strong> {violation.currentQuestion + 1}/{violation.totalQuestions}</div>
+                        <div><strong>Time Left:</strong> {Math.floor(violation.timeLeft / 60)}:{(violation.timeLeft % 60).toString().padStart(2, '0')}</div>
+                        <div><strong>Tab Switches:</strong> {violation.tabSwitchCount}</div>
+                        <div><strong>Status:</strong> 
+                          <span style={{
+                            marginLeft: '5px',
+                            padding: '2px 8px',
+                            borderRadius: '12px',
+                            fontSize: '12px',
+                            background: violation.isResolved ? '#4CAF50' : '#ff9800',
+                            color: 'white'
+                          }}>
+                            {violation.isResolved ? 'Resolved' : 'Pending'}
+                          </span>
+                        </div>
+                      </div>
+                      
+                      <div style={{ marginTop: '15px', display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
+                        {!violation.isResolved && (
+                          <>
+                            <button
+                              style={styles.resumeButton}
+                              onClick={() => handleGenerateResumeToken(violation._id)}
+                              disabled={loading}
+                            >
+                              🔄 Generate Resume Token
+                            </button>
+                            <button
+                              style={{...styles.resumeButton, background: 'linear-gradient(45deg, #4CAF50, #45a049)'}}
+                              onClick={() => handleRestartStudentQuiz(violation)}
+                              disabled={loading}
+                            >
+                              🎯 Approve Restart
+                            </button>
+                          </>
+                        )}
+                        <button
+                          style={{...styles.resumeButton, background: 'linear-gradient(45deg, #2196F3, #1976D2)'}}
+                          onClick={() => {
+                            setSelectedViolation(violation);
+                            setShowViolationDetails(true);
+                          }}
+                          disabled={loading}
+                        >
+                          👁️ View Details
+                        </button>
+                      </div>
+                      
+                      <div style={{ marginTop: '10px', fontSize: '12px', color: '#666' }}>
+                        <strong>Occurred:</strong> {new Date(violation.createdAt).toLocaleString()}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p style={{ textAlign: 'center', color: '#666', marginTop: '20px' }}>
+                  {loading ? 'Loading violations...' : 'No violations found for this quiz code.'}
+                </p>
+              )}
+            </div>
+          )}
+        </div>
+        
+        {/* Violation Details Modal */}
+        {showViolationDetails && selectedViolation && (
+          <div style={{
+            position: 'fixed',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            background: 'rgba(0,0,0,0.5)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000
+          }}>
+            <div style={{
+              background: 'white',
+              padding: '30px',
+              borderRadius: '15px',
+              maxWidth: '600px',
+              maxHeight: '80vh',
+              overflow: 'auto',
+              margin: '20px'
+            }}>
+              <h3>Violation Details</h3>
+              <div style={{ marginBottom: '15px' }}>
+                <strong>Student:</strong> {selectedViolation.studentName} ({selectedViolation.regNo})<br />
+                <strong>Department:</strong> {selectedViolation.department}<br />
+                <strong>Violation Type:</strong> {selectedViolation.violationType.replace('_', ' ')}<br />
+                <strong>Current Question:</strong> {selectedViolation.currentQuestion + 1}<br />
+                <strong>Time Remaining:</strong> {Math.floor(selectedViolation.timeLeft / 60)}:{(selectedViolation.timeLeft % 60).toString().padStart(2, '0')}<br />
+                <strong>Tab Switch Count:</strong> {selectedViolation.tabSwitchCount}<br />
+                <strong>Time Spent:</strong> {Math.floor(selectedViolation.timeSpent / 60)} minutes<br />
+                <strong>Occurred:</strong> {new Date(selectedViolation.createdAt).toLocaleString()}
+              </div>
+              
+              <h4>Current Answers:</h4>
+              <div style={{ maxHeight: '200px', overflow: 'auto', background: '#f9f9f9', padding: '10px', borderRadius: '5px' }}>
+                {selectedViolation.userAnswers.map((answer, index) => (
+                  <div key={index} style={{ marginBottom: '5px' }}>
+                    <strong>Q{index + 1}:</strong> {answer || 'Not answered'}
+                  </div>
+                ))}
+              </div>
+              
+              <div style={{ textAlign: 'center', marginTop: '20px' }}>
+                <button
+                  style={styles.button}
+                  onClick={() => {
+                    setShowViolationDetails(false);
+                    setSelectedViolation(null);
+                  }}
+                >
+                  Close
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
   }
 
   // Student Panel
@@ -1800,9 +2181,55 @@ if (activeAdminSection === 'create') {
         </div>
       );
     }
-  }
-
+    // Waiting for Admin View - ADD THIS SECTION
+if (studentView === 'waitingForAdmin') {
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <LoadingError />
+        <div style={styles.waitingCard}>
+          <div style={{ fontSize: '4rem', marginBottom: '20px' }}>⏳</div>
+          <h2 style={{ color: '#1976D2', marginBottom: '20px' }}>Quiz Suspended</h2>
+          <p style={{ whiteSpace: 'pre-line', marginBottom: '30px', fontSize: '16px' }}>
+            {suspensionMessage}
+          </p>
+          
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            <h3 style={{ marginBottom: '15px' }}>Resume Quiz</h3>
+            <p style={{ color: '#666', marginBottom: '15px' }}>
+              Enter the resume token provided by your instructor:
+            </p>
+            <input
+              type="text"
+              placeholder="Enter Resume Token"
+              value={resumeToken}
+              onChange={(e) => setResumeToken(e.target.value.toUpperCase())}
+              style={styles.input}
+              disabled={loading}
+            />
+            <div style={{ textAlign: 'center', marginTop: '15px' }}>
+              <button style={styles.button} onClick={handleResumeQuiz} disabled={loading}>
+                {loading ? 'Resuming...' : 'Resume Quiz'}
+              </button>
+            </div>
+          </div>
+          
+          <div style={{ marginTop: '30px' }}>
+            <button 
+              style={{...styles.button, background: 'linear-gradient(45deg, #666, #555)'}} 
+              onClick={() => setCurrentView('home')}
+              disabled={loading}
+            >
+              Exit to Home
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+}
   return null;
 };
-
 export default IntegratedQuizApp;
+
