@@ -62,6 +62,25 @@ const [violationId, setViolationId] = useState(null);
 const [originalTimeAllotted, setOriginalTimeAllotted] = useState(30 * 60);
 const [timeSpent, setTimeSpent] = useState(0);
 
+// Add these new state variables:
+const [userEmail, setUserEmail] = useState('');
+const [userPassword, setUserPassword] = useState('');
+const [userRole, setUserRole] = useState('');
+const [currentUser, setCurrentUser] = useState(null);
+
+
+// Registration states
+const [showRegistration, setShowRegistration] = useState(false);
+const [registrationData, setRegistrationData] = useState({
+  name: '',
+  email: '',
+  password: '',
+  confirmPassword: '',
+  role: 'student' // default to student
+});
+const [registrationError, setRegistrationError] = useState('');
+
+
   // NEW: CSV Export Function
   const exportToCSV = (data, filename) => {
     if (!data || data.length === 0) {
@@ -200,6 +219,62 @@ const [timeSpent, setTimeSpent] = useState(0);
       alert('Failed to load results: ' + error.message);
     }
   };
+
+  // Add this new login handler:
+const handleUserLogin = async () => {
+  try {
+    const response = await apiCall('/api/user/login', 'POST', { 
+      email: userEmail,
+      password: userPassword
+    });
+    
+    if (response.success) {
+      setCurrentUser(response.user);
+      setUserRole(response.user.role);
+      
+      if (response.user.role === 'admin') {
+        // Admin users go to admin code verification
+        setCurrentView('admin');
+      } else {
+        // Student users go directly to quiz joining
+        setCurrentView('student');
+      }
+    }
+  } catch (error) {
+    alert('Login failed: ' + error.message);
+  }
+};
+
+const handleUserRegistration = async () => {
+  // Validation logic
+  if (!registrationData.name || !registrationData.email || !registrationData.password) {
+    setRegistrationError('Please fill all required fields');
+    return;
+  }
+  
+  if (registrationData.password !== registrationData.confirmPassword) {
+    setRegistrationError('Passwords do not match');
+    return;
+  }
+  
+  try {
+    const response = await apiCall('/api/user/register', 'POST', {
+      name: registrationData.name,
+      email: registrationData.email,
+      password: registrationData.password,
+      role: registrationData.role
+    });
+    
+    if (response.success) {
+      alert('Registration successful! Please login with your credentials.');
+      setShowRegistration(false);
+      setRegistrationData({ name: '', email: '', password: '', confirmPassword: '', role: 'student' });
+      setRegistrationError('');
+    }
+  } catch (error) {
+    setRegistrationError('Registration failed: ' + error.message);
+  }
+};
 
   // Admin authentication
   const handleAdminLogin = async () => {
@@ -1037,7 +1112,142 @@ waitingCard: {
   );
 
   // Home page
-  if (currentView === 'home') {
+ if (currentView === 'home') {
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <LoadingError />
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <h1 style={{ fontSize: '3rem', color: '#333', marginBottom: '10px' }}>🎓 Quiz Portal</h1>
+          <p style={{ fontSize: '1.2rem', color: '#666' }}>
+            {showRegistration ? 'Create your account' : 'Login to continue'}
+          </p>
+        </div>
+        
+        {!showRegistration ? (
+          // LOGIN FORM
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            <input
+              type="email"
+              placeholder="Enter your email address"
+              value={userEmail}
+              onChange={(e) => setUserEmail(e.target.value)}
+              style={styles.input}
+              disabled={loading}
+            />
+            <input
+              type="password"
+              placeholder="Enter your password"
+              value={userPassword}
+              onChange={(e) => setUserPassword(e.target.value)}
+              style={styles.input}
+              onKeyPress={(e) => e.key === 'Enter' && handleUserLogin()}
+              disabled={loading}
+            />
+            <div style={{ textAlign: 'center' }}>
+              <button style={styles.button} onClick={handleUserLogin} disabled={loading}>
+                {loading ? 'Logging in...' : 'Login'}
+              </button>
+            </div>
+            
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+              <p style={{ color: '#666' }}>Don't have an account?</p>
+              <button 
+                style={{...styles.button, background: 'linear-gradient(45deg, #4CAF50, #45a049)'}} 
+                onClick={() => setShowRegistration(true)}
+                disabled={loading}
+              >
+                Register Here
+              </button>
+            </div>
+          </div>
+        ) : (
+          // REGISTRATION FORM
+          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+            {registrationError && (
+              <div style={styles.errorMessage}>
+                {registrationError}
+              </div>
+            )}
+            
+            <input
+              type="text"
+              placeholder="Full Name *"
+              value={registrationData.name}
+              onChange={(e) => setRegistrationData({...registrationData, name: e.target.value})}
+              style={styles.input}
+              disabled={loading}
+            />
+            <input
+              type="email"
+              placeholder="Email Address *"
+              value={registrationData.email}
+              onChange={(e) => setRegistrationData({...registrationData, email: e.target.value})}
+              style={styles.input}
+              disabled={loading}
+            />
+            <input
+              type="password"
+              placeholder="Password *"
+              value={registrationData.password}
+              onChange={(e) => setRegistrationData({...registrationData, password: e.target.value})}
+              style={styles.input}
+              disabled={loading}
+            />
+            <input
+              type="password"
+              placeholder="Confirm Password *"
+              value={registrationData.confirmPassword}
+              onChange={(e) => setRegistrationData({...registrationData, confirmPassword: e.target.value})}
+              style={styles.input}
+              disabled={loading}
+            />
+            
+            <select
+              value={registrationData.role}
+              onChange={(e) => setRegistrationData({...registrationData, role: e.target.value})}
+              style={styles.select}
+              disabled={loading}
+            >
+              <option value="student">Student</option>
+              <option value="admin">Admin</option>
+            </select>
+            
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+              <button style={styles.button} onClick={handleUserRegistration} disabled={loading}>
+                {loading ? 'Registering...' : 'Register'}
+              </button>
+            </div>
+            
+            <div style={{ textAlign: 'center', marginTop: '20px' }}>
+              <p style={{ color: '#666' }}>Already have an account?</p>
+              <button 
+                style={{...styles.button, background: 'linear-gradient(45deg, #667eea, #764ba2)'}} 
+                onClick={() => {
+                  setShowRegistration(false);
+                  setRegistrationError('');
+                }}
+                disabled={loading}
+              >
+                Back to Login
+              </button>
+            </div>
+          </div>
+        )}
+        
+        <div style={{ marginTop: '30px', padding: '20px', background: '#f0f8ff', borderRadius: '10px' }}>
+          <h4 style={{ margin: '0 0 10px 0', color: '#667eea' }}>Access Information:</h4>
+          <p style={{ margin: '0', color: '#666', fontSize: '14px' }}>
+            • Admin users: Can create and manage quizzes<br/>
+            • Student users: Can take quizzes and view results
+          </p>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+  /*if (currentView === 'home') {
     return (
       <div style={styles.container}>
         <div style={styles.card}>
@@ -1072,7 +1282,7 @@ waitingCard: {
         </div>
       </div>
     );
-  }
+  }*/
 
   // Admin Panel
   if (currentView === 'admin') {
