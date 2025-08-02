@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const PORT = 3001;
@@ -130,7 +131,6 @@ const studentResultSchema = new mongoose.Schema({
   }
 });
 
-// Add this new schema after studentResultSchema
 const quizViolationSchema = new mongoose.Schema({
   sessionId: {
     type: String,
@@ -202,18 +202,57 @@ const quizViolationSchema = new mongoose.Schema({
   }
 });
 
+// User Schema
+const userSchema = new mongoose.Schema({
+  name: {
+    type: String,
+    required: true,
+    trim: true
+  },
+  email: {
+    type: String,
+    required: true,
+    unique: true,
+    lowercase: true,
+    trim: true
+  },
+  password: {
+    type: String,
+    required: true,
+    minlength: 6
+  },
+  role: {
+    type: String,
+    required: true,
+    enum: ['student', 'admin'],
+    default: 'student'
+  },
+  isActive: {
+    type: Boolean,
+    default: true
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now
+  },
+  lastLogin: {
+    type: Date,
+    default: null
+  }
+});
 
 // Models
 const QuizSession = mongoose.model('QuizSession', quizSessionSchema);
 const StudentResult = mongoose.model('StudentResult', studentResultSchema);
 const QuizViolation = mongoose.model('QuizViolation', quizViolationSchema);
+const User = mongoose.model('User', userSchema);
 
 // Helper function to generate session ID
 const generateSessionId = () => {
   return 'QUIZ' + Math.random().toString(36).substr(2, 6).toUpperCase();
 };
 
-// ADD THIS RIGHT HERE - after generateSessionId function (around line 126)
+// Generate secure token for violations
 const generateSecureToken = () => {
   return 'TOK_' + Math.random().toString(36).substr(2, 12).toUpperCase() + 
          '_' + Date.now().toString(36).toUpperCase();
@@ -262,6 +301,157 @@ app.post('/api/admin/login', async (req, res) => {
   }
 });
 
+// User registration
+app.post('/api/user/register', async (req, res) => {
+  try {
+    const { name, email, password, role = 'student' } = req.body;
+    
+    // Validation
+    if (!name || !email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Name, email, and password are required' 
+      });
+    }
+    
+    if (password.length < 6) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Password must be at least 6 characters long' 
+      });
+    }
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ email: email.toLowerCase() });
+    if (existingUser) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'User with this email already exists' 
+      });
+    }
+    
+    // Hash password
+    const saltRounds = 10;
+    const hashedPassword = await bcrypt.hash(password, saltRounds);
+    
+    // Validate role based on email domain
+    const domain = email.split('@')[1]?.toLowerCase();
+    const adminDomains = [
+      'admin.college.edu',
+      'faculty.college.edu', 
+      'instructor.college.edu',
+      'staff.college.edu'
+    ];
+    
+    let finalRole = role;
+    if (adminDomains.includes(domain) && role !== 'admin') {
+      // If admin domain but student role selected, default to admin
+      finalRole = 'admin';
+    } else if (!adminDomains.includes(domain) && role === 'admin') {
+      // If non-admin domain but admin role selected, default to student
+      finalRole = 'student';
+    }
+    
+    // Create new user
+    const newUser = new User({
+      name: name.trim(),
+      email: email.toLowerCase().trim(),
+      password: hashedPassword,
+      role: finalRole
+    });
+    
+    const savedUser = await newUser.save();
+    
+    // Remove password from response
+    const userResponse = savedUser.toObject();
+    delete userResponse.password;
+    
+    res.status(201).json({ 
+      success: true, 
+      message: 'User registered successfully',
+      user: userResponse
+    });
+    
+  } catch (error) {
+    console.error('User registration error:', error);
+    
+    // Handle duplicate key error
+    if (error.code === 11000) {
+      return res.status(409).json({ 
+        success: false, 
+        message: 'User with this email already exists' 
+      });
+    }
+    
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during registration' 
+    });
+  }
+});
+
+// User login with database authentication
+app.post('/api/user/login', async (req, res) => {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Email and password are required' 
+      });
+    }
+    
+    // Find user by email
+    const user = await User.findOne({ email: email.toLowerCase() });
+    
+    if (!user) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid email or password' 
+      });
+    }
+    
+    if (!user.isActive) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Account is deactivated. Please contact administrator.' 
+      });
+    }
+    
+    // Verify password
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+    
+    if (!isPasswordValid) {
+      return res.status(401).json({ 
+        success: false, 
+        message: 'Invalid email or password' 
+      });
+    }
+    
+    // Update last login
+    user.lastLogin = new Date();
+    await user.save();
+    
+    // Remove password from response
+    const userResponse = user.toObject();
+    delete userResponse.password;
+    
+    res.json({ 
+      success: true, 
+      user: userResponse,
+      message: 'Login successful' 
+    });
+    
+  } catch (error) {
+    console.error('User login error:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Server error during login' 
+    });
+  }
+});
+
 // Get all quiz sessions
 app.get('/api/quiz-sessions', async (req, res) => {
   try {
@@ -279,7 +469,7 @@ app.get('/api/quiz-sessions', async (req, res) => {
   }
 });
 
-// Get specific quiz session - FIXED ROUTE
+// Get specific quiz session
 app.get('/api/quiz-sessions/:sessionId', async (req, res) => {
   try {
     const sessionId = req.params.sessionId;
@@ -357,7 +547,7 @@ app.post('/api/quiz-sessions', async (req, res) => {
   }
 });
 
-// Add question to quiz session - FIXED ROUTE
+// Add question to quiz session
 app.post('/api/quiz-sessions/:sessionId/questions', async (req, res) => {
   try {
     const sessionId = req.params.sessionId;
@@ -426,279 +616,7 @@ app.post('/api/quiz-sessions/:sessionId/questions', async (req, res) => {
   }
 });
 
-// Start quiz session - FIXED ROUTE
-app.put('/api/quiz-sessions/:sessionId/start', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    
-    if (!sessionId) {
-      return res.status(400).json({ 
-        message: 'Session ID is required' 
-      });
-    }
-    
-    const session = await QuizSession.findOne({ 
-      sessionId: sessionId.toUpperCase() 
-    });
-    
-    if (!session) {
-      return res.status(404).json({ 
-        message: 'Quiz session not found' 
-      });
-    }
-    
-    if (session.questions.length === 0) {
-      return res.status(400).json({ 
-        message: 'Cannot start quiz with no questions' 
-      });
-    }
-    
-    session.isActive = true;
-    await session.save();
-    
-    res.json({
-      message: 'Quiz started successfully',
-      session: session
-    });
-  } catch (error) {
-    console.error('Start quiz error:', error);
-    res.status(500).json({ 
-      message: 'Error starting quiz',
-      error: error.message 
-    });
-  }
-});
-
-// End quiz session - FIXED ROUTE
-app.put('/api/quiz-sessions/:sessionId/end', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    
-    if (!sessionId) {
-      return res.status(400).json({ 
-        message: 'Session ID is required' 
-      });
-    }
-    
-    const session = await QuizSession.findOne({ 
-      sessionId: sessionId.toUpperCase() 
-    });
-    
-    if (!session) {
-      return res.status(404).json({ 
-        message: 'Quiz session not found' 
-      });
-    }
-    
-    session.isActive = false;
-    await session.save();
-    
-    res.json({
-      message: 'Quiz ended successfully',
-      session: session
-    });
-  } catch (error) {
-    console.error('End quiz error:', error);
-    res.status(500).json({ 
-      message: 'Error ending quiz',
-      error: error.message 
-    });
-  }
-});
-
-// Submit quiz results
-app.post('/api/quiz-results', async (req, res) => {
-  try {
-    const { 
-      sessionId, 
-      studentName, 
-      regNo, 
-      department, 
-      answers, 
-      score, 
-      totalQuestions, 
-      percentage,
-      isAutoSubmit = false,        // ADD THIS
-      violationType = null,        // ADD THIS  
-      isResumed = false,          // ADD THIS
-      timeSpent = 0  
-    } = req.body;
-    
-    // Validation
-    if (!sessionId || !studentName || !regNo || !department || !answers) {
-      return res.status(400).json({ 
-        message: 'All fields are required' 
-      });
-    }
-    
-    // Check if session exists
-    const session = await QuizSession.findOne({ 
-      sessionId: sessionId.toUpperCase() 
-    });
-    
-    if (!session) {
-      return res.status(404).json({ 
-        message: 'Quiz session not found' 
-      });
-    }
-    
-    // Check for duplicate submission
-    const existingResult = await StudentResult.findOne({ 
-      sessionId: sessionId.toUpperCase(), 
-      regNo: regNo.toUpperCase() 
-    });
-    
-    if (existingResult) {
-      return res.status(409).json({ 
-        message: 'Student has already submitted results for this quiz' 
-      });
-    }
-    
-    const newResult = new StudentResult({
-      sessionId: sessionId.toUpperCase(),
-      studentName,
-      regNo: regNo.toUpperCase(),
-      department,
-      answers,
-      score,
-      totalQuestions,
-      percentage,
-      isAutoSubmit,              // ADD THIS
-      violationType,             // ADD THIS
-      isResumed,                 // ADD THIS
-      timeSpent
-    });
-    
-    const savedResult = await newResult.save();
-    
-    res.status(201).json({
-      message: 'Quiz results submitted successfully',
-      result: savedResult
-    });
-  } catch (error) {
-    console.error('Submit results error:', error);
-    res.status(500).json({ 
-      message: 'Error submitting quiz results',
-      error: error.message 
-    });
-  }
-});
-
-// Get results for a specific session - FIXED ROUTE
-app.get('/api/quiz-results/:sessionId', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    
-    if (!sessionId) {
-      return res.status(400).json({ 
-        message: 'Session ID is required' 
-      });
-    }
-    
-    const results = await StudentResult.find({ 
-      sessionId: sessionId.toUpperCase() 
-    })
-    .sort({ submittedAt: -1 })
-    .select('-__v');
-    
-    res.json(results);
-  } catch (error) {
-    console.error('Get results error:', error);
-    res.status(500).json({ 
-      message: 'Error fetching quiz results',
-      error: error.message 
-    });
-  }
-});
-
-// Get all results (admin only)
-app.get('/api/quiz-results', async (req, res) => {
-  try {
-    const results = await StudentResult.find()
-      .sort({ submittedAt: -1 })
-      .select('-__v');
-    
-    res.json(results);
-  } catch (error) {
-    console.error('Get all results error:', error);
-    res.status(500).json({ 
-      message: 'Error fetching all quiz results',
-      error: error.message 
-    });
-  }
-});
-
-// Delete quiz session (admin only) - FIXED ROUTE
-app.delete('/api/quiz-sessions/:sessionId', async (req, res) => {
-  try {
-    const sessionId = req.params.sessionId;
-    
-    if (!sessionId) {
-      return res.status(400).json({ 
-        message: 'Session ID is required' 
-      });
-    }
-    
-    const session = await QuizSession.findOneAndDelete({ 
-      sessionId: sessionId.toUpperCase() 
-    });
-    
-    if (!session) {
-      return res.status(404).json({ 
-        message: 'Quiz session not found' 
-      });
-    }
-    
-    // Also delete related results
-    await StudentResult.deleteMany({ 
-      sessionId: sessionId.toUpperCase() 
-    });
-    
-    res.json({
-      message: 'Quiz session and related results deleted successfully'
-    });
-  } catch (error) {
-    console.error('Delete session error:', error);
-    res.status(500).json({ 
-      message: 'Error deleting quiz session',
-      error: error.message 
-    });
-  }
-});
-
-// Get quiz statistics
-app.get('/api/stats', async (req, res) => {
-  try {
-    const totalSessions = await QuizSession.countDocuments();
-    const activeSessions = await QuizSession.countDocuments({ isActive: true });
-    const totalSubmissions = await StudentResult.countDocuments();
-    
-    // Average score calculation
-    const avgScore = await StudentResult.aggregate([
-      {
-        $group: {
-          _id: null,
-          averagePercentage: { $avg: '$percentage' }
-        }
-      }
-    ]);
-    
-    res.json({
-      totalSessions,
-      activeSessions,
-      totalSubmissions,
-      averageScore: avgScore.length > 0 ? Math.round(avgScore[0].averagePercentage) : 0
-    });
-  } catch (error) {
-    console.error('Get stats error:', error);
-    res.status(500).json({ 
-      message: 'Error fetching statistics',
-      error: error.message 
-    });
-  }
-});
-
-// Add this route after your existing question routes - DON'T remove the existing /questions route
+// Add CSV questions to quiz session
 app.post('/api/quiz-sessions/:sessionId/questions/csv', async (req, res) => {
   try {
     const sessionId = req.params.sessionId;
@@ -776,9 +694,281 @@ app.post('/api/quiz-sessions/:sessionId/questions/csv', async (req, res) => {
   }
 });
 
-// ADD ALL THESE ROUTES RIGHT HERE - after line 656, before error handling
+// Start quiz session
+app.put('/api/quiz-sessions/:sessionId/start', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    const session = await QuizSession.findOne({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    if (session.questions.length === 0) {
+      return res.status(400).json({ 
+        message: 'Cannot start quiz with no questions' 
+      });
+    }
+    
+    session.isActive = true;
+    await session.save();
+    
+    res.json({
+      message: 'Quiz started successfully',
+      session: session
+    });
+  } catch (error) {
+    console.error('Start quiz error:', error);
+    res.status(500).json({ 
+      message: 'Error starting quiz',
+      error: error.message 
+    });
+  }
+});
 
-// POST /api/quiz-violations - Save violation when student violates rules
+// End quiz session
+app.put('/api/quiz-sessions/:sessionId/end', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    const session = await QuizSession.findOne({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    session.isActive = false;
+    await session.save();
+    
+    res.json({
+      message: 'Quiz ended successfully',
+      session: session
+    });
+  } catch (error) {
+    console.error('End quiz error:', error);
+    res.status(500).json({ 
+      message: 'Error ending quiz',
+      error: error.message 
+    });
+  }
+});
+
+// Submit quiz results
+app.post('/api/quiz-results', async (req, res) => {
+  try {
+    const { 
+      sessionId, 
+      studentName, 
+      regNo, 
+      department, 
+      answers, 
+      score, 
+      totalQuestions, 
+      percentage,
+      isAutoSubmit = false,
+      violationType = null,
+      isResumed = false,
+      timeSpent = 0  
+    } = req.body;
+    
+    // Validation
+    if (!sessionId || !studentName || !regNo || !department || !answers) {
+      return res.status(400).json({ 
+        message: 'All fields are required' 
+      });
+    }
+    
+    // Check if session exists
+    const session = await QuizSession.findOne({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Check for duplicate submission
+    const existingResult = await StudentResult.findOne({ 
+      sessionId: sessionId.toUpperCase(), 
+      regNo: regNo.toUpperCase() 
+    });
+    
+    if (existingResult) {
+      return res.status(409).json({ 
+        message: 'Student has already submitted results for this quiz' 
+      });
+    }
+    
+    const newResult = new StudentResult({
+      sessionId: sessionId.toUpperCase(),
+      studentName,
+      regNo: regNo.toUpperCase(),
+      department,
+      answers,
+      score,
+      totalQuestions,
+      percentage,
+      isAutoSubmit,
+      violationType,
+      isResumed,
+      timeSpent
+    });
+    
+    const savedResult = await newResult.save();
+    
+    res.status(201).json({
+      message: 'Quiz results submitted successfully',
+      result: savedResult
+    });
+  } catch (error) {
+    console.error('Submit results error:', error);
+    res.status(500).json({ 
+      message: 'Error submitting quiz results',
+      error: error.message 
+    });
+  }
+});
+
+// Get results for a specific session
+app.get('/api/quiz-results/:sessionId', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    const results = await StudentResult.find({ 
+      sessionId: sessionId.toUpperCase() 
+    })
+    .sort({ submittedAt: -1 })
+    .select('-__v');
+    
+    res.json(results);
+  } catch (error) {
+    console.error('Get results error:', error);
+    res.status(500).json({ 
+      message: 'Error fetching quiz results',
+      error: error.message 
+    });
+  }
+});
+
+// Get all results (admin only)
+app.get('/api/quiz-results', async (req, res) => {
+  try {
+    const results = await StudentResult.find()
+      .sort({ submittedAt: -1 })
+      .select('-__v');
+    
+    res.json(results);
+  } catch (error) {
+    console.error('Get all results error:', error);
+    res.status(500).json({ 
+      message: 'Error fetching all quiz results',
+      error: error.message 
+    });
+  }
+});
+
+// Delete quiz session (admin only)
+app.delete('/api/quiz-sessions/:sessionId', async (req, res) => {
+  try {
+    const sessionId = req.params.sessionId;
+    
+    if (!sessionId) {
+      return res.status(400).json({ 
+        message: 'Session ID is required' 
+      });
+    }
+    
+    const session = await QuizSession.findOneAndDelete({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    if (!session) {
+      return res.status(404).json({ 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Also delete related results
+    await StudentResult.deleteMany({ 
+      sessionId: sessionId.toUpperCase() 
+    });
+    
+    res.json({
+      message: 'Quiz session and related results deleted successfully'
+    });
+  } catch (error) {
+    console.error('Delete session error:', error);
+    res.status(500).json({ 
+      message: 'Error deleting quiz session',
+      error: error.message 
+    });
+  }
+});
+
+// Get quiz statistics
+app.get('/api/stats', async (req, res) => {
+  try {
+    const totalSessions = await QuizSession.countDocuments();
+    const activeSessions = await QuizSession.countDocuments({ isActive: true });
+    const totalSubmissions = await StudentResult.countDocuments();
+    
+    // Average score calculation
+    const avgScore = await StudentResult.aggregate([
+      {
+        $group: {
+          _id: null,
+          averagePercentage: { $avg: '$percentage' }
+        }
+      }
+    ]);
+    
+    res.json({
+      totalSessions,
+      activeSessions,
+      totalSubmissions,
+      averageScore: avgScore.length > 0 ? Math.round(avgScore[0].averagePercentage) : 0
+    });
+  } catch (error) {
+    console.error('Get stats error:', error);
+    res.status(500).json({ 
+      message: 'Error fetching statistics',
+      error: error.message 
+    });
+  }
+});
+
+// Quiz Violation Routes
+
+// Save violation when student violates rules
 app.post('/api/quiz-violations', async (req, res) => {
   try {
     const {
@@ -839,7 +1029,7 @@ app.post('/api/quiz-violations', async (req, res) => {
   }
 });
 
-// GET /api/quiz-violations/:sessionId
+// Get violations for a session
 app.get('/api/quiz-violations/:sessionId', async (req, res) => {
   try {
     const sessionId = req.params.sessionId;
@@ -866,7 +1056,7 @@ app.get('/api/quiz-violations/:sessionId', async (req, res) => {
   }
 });
 
-// POST /api/quiz-violations/:violationId/resume
+// Generate resume token for violation
 app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
   try {
     const violationId = req.params.violationId;
