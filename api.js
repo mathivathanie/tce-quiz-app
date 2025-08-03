@@ -723,7 +723,6 @@ app.put('/api/quiz-sessions/:sessionId/start', async (req, res) => {
     
     session.isActive = true;
     await session.save();
-    
     res.json({
       message: 'Quiz started successfully',
       session: session
@@ -791,7 +790,6 @@ app.post('/api/quiz-results', async (req, res) => {
       isResumed = false,
       timeSpent = 0  
     } = req.body;
-    
     // Validation
     if (!sessionId || !studentName || !regNo || !department || !answers) {
       return res.status(400).json({ 
@@ -838,7 +836,6 @@ app.post('/api/quiz-results', async (req, res) => {
     });
     
     const savedResult = await newResult.save();
-    
     res.status(201).json({
       message: 'Quiz results submitted successfully',
       result: savedResult
@@ -1074,13 +1071,10 @@ app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
         message: 'Violation already resolved'
       });
     }
-
     const resumeToken = generateSecureToken();
-
     violation.resumeToken = resumeToken;
     violation.adminAction = 'resume_approved';
     await violation.save();
-
     res.json({
       message: 'Resume token generated successfully',
       resumeToken: resumeToken,
@@ -1094,32 +1088,25 @@ app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
     });
   }
 });
-
 // POST /api/quiz-violations/:violationId/restart
 app.post('/api/quiz-violations/:violationId/restart', async (req, res) => {
   try {
     const violationId = req.params.violationId;
-
     const violation = await QuizViolation.findById(violationId);
-
     if (!violation) {
       return res.status(404).json({
         message: 'Violation not found'
       });
     }
-
     if (violation.isResolved) {
       return res.status(400).json({
         message: 'Violation already resolved'
       });
     }
-
     const restartToken = generateSecureToken();
-
     violation.restartToken = restartToken;
     violation.adminAction = 'restart_approved';
     await violation.save();
-
     res.json({
       success: true,
       message: 'Restart token generated successfully',
@@ -1134,51 +1121,42 @@ app.post('/api/quiz-violations/:violationId/restart', async (req, res) => {
     });
   }
 });
-
 // POST /api/quiz-resume
 app.post('/api/quiz-resume', async (req, res) => {
   try {
     const { resumeToken } = req.body;
-
     if (!resumeToken) {
       return res.status(400).json({
         message: 'Resume token is required'
       });
     }
-
     const violation = await QuizViolation.findOne({
       $or: [
         { resumeToken: resumeToken },
         { restartToken: resumeToken }
       ]
     });
-
     if (!violation) {
       return res.status(404).json({
         message: 'Invalid or expired token'
       });
     }
-
     if (violation.isResolved) {
       return res.status(400).json({
         message: 'Token already used'
       });
     }
-
     const session = await QuizSession.findOne({
       sessionId: violation.sessionId
     });
-
     if (!session || !session.isActive) {
       return res.status(400).json({
         message: 'Quiz session not active'
       });
     }
-
     violation.isResolved = true;
     violation.resolvedAt = new Date();
     await violation.save();
-
     if (violation.resumeToken === resumeToken) {
       res.json({
         success: true,
@@ -1213,7 +1191,6 @@ app.post('/api/quiz-resume', async (req, res) => {
     });
   }
 });
-
 // POST /api/quiz-violations/check-pending
 app.post('/api/quiz-violations/check-pending', async (req, res) => {
   try {
@@ -1224,13 +1201,11 @@ app.post('/api/quiz-violations/check-pending', async (req, res) => {
         message: 'Student name, registration number, and session ID are required'
       });
     }
-
     const pendingViolation = await QuizViolation.findOne({
       sessionId: sessionId.toUpperCase(),
       regNo: regNo.toUpperCase(),
       isResolved: false
     });
-
     if (pendingViolation) {
       res.json({
         hasPendingViolation: true,
@@ -1251,7 +1226,6 @@ app.post('/api/quiz-violations/check-pending', async (req, res) => {
     });
   }
 });
-
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -1260,7 +1234,6 @@ app.use((err, req, res, next) => {
     error: CONFIG.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
 });
-
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
@@ -1268,7 +1241,6 @@ app.use((req, res) => {
     path: req.originalUrl 
   });
 });
-
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Quiz API Server running on port ${PORT}`);
@@ -1278,5 +1250,4 @@ app.listen(PORT, () => {
   console.log(`🔗 Frontend URL: ${CONFIG.FRONTEND_URL}`);
   console.log(`💾 MongoDB URI: ${CONFIG.MONGODB_URI}`);
 });
-
 module.exports = app;
