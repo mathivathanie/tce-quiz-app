@@ -547,15 +547,28 @@ const clearCsvUpload = () => {
  // ENHANCED: Load quiz violations
 const loadQuizViolations = async (sessionId) => {
   try {
-    setLoading(true); // Add this line
+    setLoading(true);
     const violations = await apiCall(`/api/quiz-violations/${sessionId}`);
-    setQuizViolations(violations);
-    setLoading(false); // Add this line
+
+    // Filter out duplicates by regNo
+    const uniqueViolations = [];
+    const seenRegNos = new Set();
+
+    for (const v of violations) {
+      if (!seenRegNos.has(v.regNo)) {
+        seenRegNos.add(v.regNo);
+        uniqueViolations.push(v);
+      }
+    }
+
+    setQuizViolations(uniqueViolations);
+    setLoading(false);
   } catch (error) {
-    setLoading(false); // Add this line
+    setLoading(false);
     alert('Failed to load violations: ' + error.message);
   }
 };
+
 
 // ENHANCED: Generate resume token for student
 const handleGenerateResumeToken = async (violationId) => {
@@ -610,12 +623,19 @@ const handleRestartStudentQuiz = async (violation) => {
 
 
   // Start student quiz
-  const startStudentQuiz = () => {
+  const startStudentQuiz = async () => {
     if (!studentInfo.name.trim() || !studentInfo.regNo.trim() || !studentInfo.department) {
       alert('Please fill in all required fields!');
       return;
     }
     
+      // 🔁 Check if student has pending violation
+  const pending = await checkPendingResume(studentInfo.name, studentInfo.regNo, currentQuiz.sessionId);
+  if (pending) {
+    // If true, they are already redirected to 'waitingForAdmin'
+    return;
+  }
+
     setStudentView('quiz');
     setCurrentQuestion(0);
     setTimeLeft(30 * 60);
