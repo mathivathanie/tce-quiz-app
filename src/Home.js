@@ -82,11 +82,6 @@ const [registrationData, setRegistrationData] = useState({
 const [registrationError, setRegistrationError] = useState('');
 
 
-// Passage navigation states
-const [passages, setPassages] = useState([]);
-const [showPassageModal, setShowPassageModal] = useState(false);
-const [selectedPassage, setSelectedPassage] = useState(null);
-
   // NEW: CSV Export Function
   const exportToCSV = (data, filename) => {
     if (!data || data.length === 0) {
@@ -301,16 +296,6 @@ const handleUserRegistration = async () => {
     }
   };
 
-// Helper function to check if current question has related passage
-const getCurrentQuestionPassage = () => {
-  if (!currentQuiz?.questions || !passages.length) return null;
-  
-  const currentQ = currentQuiz.questions[currentQuestion];
-  if (!currentQ?.passageId) return null;
-  
-  return passages.find(p => p.id === currentQ.passageId);
-};
-
   // Create new quiz session
   const handleCreateSession = async () => {
     const sessionName = prompt('Enter Quiz Session Name:');
@@ -388,6 +373,7 @@ const handleCsvFileSelect = (event) => {
 
 // Parse CSV file using Papaparse
 const parseCsvFile = (file) => {
+  // Import Papaparse (it's available in your environment)
   import('papaparse').then(Papa => {
     Papa.parse(file, {
       header: true,
@@ -412,22 +398,9 @@ const parseCsvFile = (file) => {
           return;
         }
         
-        // FIXED: Enhanced passage extraction with proper mapping
-        const passageMap = new Map();
+        // Convert CSV data to question format
         const questions = results.data.map((row, index) => {
           const correctAnswer = row['Correct Answer']?.toString().trim().toUpperCase();
-          
-          // Extract passage if it exists
-          const passageId = row['Passage ID']?.toString().trim();
-          const passageContent = row['Passage']?.toString().trim();
-          
-          if (passageId && passageContent && !passageMap.has(passageId)) {
-            passageMap.set(passageId, {
-              id: passageId,
-              content: passageContent,
-              title: `Passage ${passageId}` // Add a title for better display
-            });
-          }
           
           return {
             question: row['Question']?.toString().trim(),
@@ -438,17 +411,11 @@ const parseCsvFile = (file) => {
               d: row['Option D']?.toString().trim()
             },
             correct: correctAnswer,
-            questionType: row['Question Type']?.toString().trim() || 'general',
-            passageId: passageId || null, // Link question to passage
             rowIndex: index + 2
           };
         });
         
-        // Store passages globally
-        const extractedPassages = Array.from(passageMap.values());
-        setPassages(extractedPassages);
-        
-        // Validation logic remains the same...
+        // Validate question data
         const validationErrors = [];
         questions.forEach((q, index) => {
           if (!q.question) validationErrors.push(`Row ${q.rowIndex}: Question is empty`);
@@ -766,17 +733,6 @@ const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null
     setTimeLeft(30 * 60);
     setTabSwitchCount(0); // UPDATED: Reset tab switch counter
   };
-// Show passage modal
-const showPassage = (passage) => {
-  setSelectedPassage(passage);
-  setShowPassageModal(true);
-};
-
-// Close passage modal
-const closePassageModal = () => {
-  setShowPassageModal(false);
-  setSelectedPassage(null);
-};
 
   // Load results when result session code changes
   useEffect(() => {
@@ -2213,327 +2169,134 @@ if (activeAdminSection === 'violations') {
     }
 
     // Quiz Taking View
-   // Quiz Taking View - CORRECTED VERSION
-if (studentView === 'quiz') {
-  const currentQ = currentQuiz.questions[currentQuestion];
-  const progress = ((currentQuestion + 1) / currentQuiz.questions.length) * 100;
-  
-  return (
-    <div style={styles.container}>
-      {warningBanner}
-      <div style={styles.card}>
-        <LoadingError />
-        {/* Timer */}
-        <div style={styles.timer}>
-          ⏰ Time Remaining: {formatTime(timeLeft)}
-        </div>
-        
-        {/* Progress Bar */}
-        <div style={styles.progressBar}>
-          <div style={styles.progressFill(progress)}></div>
-        </div>
-        
-        <div style={{ textAlign: 'center', marginBottom: '20px' }}>
-          <h3>Question {currentQuestion + 1} of {currentQuiz.questions.length}</h3>
-          {/* UPDATED: Show tab switch warning */}
-          {tabSwitchCount > 0 && (
-            <div style={{ 
-              background: tabSwitchCount === 1 ? '#fff3cd' : '#f8d7da',
-              color: tabSwitchCount === 1 ? '#856404' : '#721c24',
-              padding: '10px',
-              borderRadius: '5px',
-              margin: '10px 0',
-              fontSize: '14px',
-              fontWeight: 'bold'
-            }}>
-              {tabSwitchCount === 1 
-                ? "⚠️ Warning: 1 tab switch detected. Next switch will auto-submit!"
-                : "❌ Multiple tab switches detected. Quiz will be submitted automatically."
-              }
+    if (studentView === 'quiz') {
+      const currentQ = currentQuiz.questions[currentQuestion];
+      const progress = ((currentQuestion + 1) / currentQuiz.questions.length) * 100;
+      
+      return (
+        <div style={styles.container}>
+          {warningBanner}
+          <div style={styles.card}>
+            <LoadingError />
+            {/* Timer */}
+            <div style={styles.timer}>
+              ⏰ Time Remaining: {formatTime(timeLeft)}
             </div>
-          )}
-        </div>
-        
-        {/* Question Card with Passage Indicator */}
-        <div style={{
-          ...styles.questionCard,
-          border: currentQ.passageId ? '2px solid #4CAF50' : '1px solid #ddd'
-        }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
-            <h3 style={{ margin: 0, color: '#333', flex: 1 }}>{currentQ.question}</h3>
-            {currentQ.passageId && (
-              <div style={{
-                background: '#4CAF50',
-                color: 'white',
-                padding: '4px 12px',
-                borderRadius: '15px',
-                fontSize: '12px',
-                fontWeight: 'bold',
-                marginLeft: '15px',
-                cursor: 'pointer'
-              }}
-              onClick={() => {
-                const relatedPassage = passages.find(p => p.id === currentQ.passageId);
-                if (relatedPassage) showPassage(relatedPassage);
-              }}
-              >
-                📖 {currentQ.passageId}
+            
+            {/* Progress Bar */}
+            <div style={styles.progressBar}>
+              <div style={styles.progressFill(progress)}></div>
+            </div>
+            
+            <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+              <h3>Question {currentQuestion + 1} of {currentQuiz.questions.length}</h3>
+              {/* UPDATED: Show tab switch warning */}
+              {tabSwitchCount > 0 && (
+                <div style={{ 
+                  background: tabSwitchCount === 1 ? '#fff3cd' : '#f8d7da',
+                  color: tabSwitchCount === 1 ? '#856404' : '#721c24',
+                  padding: '10px',
+                  borderRadius: '5px',
+                  margin: '10px 0',
+                  fontSize: '14px',
+                  fontWeight: 'bold'
+                }}>
+                  {tabSwitchCount === 1 
+                    ? "⚠️ Warning: 1 tab switch detected. Next switch will auto-submit!"
+                    : "❌ Multiple tab switches detected. Quiz will be submitted automatically."
+                  }
+                </div>
+              )}
+            </div>
+            
+            {/* Question */}
+            <div style={styles.questionCard}>
+              <h3 style={{ marginBottom: '20px', color: '#333' }}>{currentQ.question}</h3>
+              
+              {/* Options */}
+              <div>
+                {Object.entries(currentQ.options).map(([key, value], index) => (
+                  <div
+                    key={key}
+                    style={styles.option(userAnswers[currentQuestion] === key.toUpperCase())}
+                    onClick={() => selectOption(index)}
+                  >
+                    <strong>{key.toUpperCase()})</strong> {value}
+                  </div>
+                ))}
               </div>
-            )}
-          </div>
-          
-          {/* Options */}
-          <div>
-            {Object.entries(currentQ.options).map(([key, value], index) => (
-              <div
-                key={key}
-                style={styles.option(userAnswers[currentQuestion] === key.toUpperCase())}
-                onClick={() => selectOption(index)}
-              >
-                <strong>{key.toUpperCase()})</strong> {value}
-              </div>
-            ))}
-          </div>
-        </div>
-        
-        {/* Navigation */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '30px' }}>
-          <button 
-            style={{
-              ...styles.button,
-              opacity: currentQuestion === 0 ? 0.5 : 1,
-              cursor: currentQuestion === 0 ? 'not-allowed' : 'pointer'
-            }}
-            onClick={previousQuestion}
-            disabled={currentQuestion === 0 || loading}
-          >
-            ← Previous
-          </button>
-          
-          <div style={{ textAlign: 'center' }}>
-            <span style={{ color: '#666' }}>
-              Answered: {userAnswers.filter(a => a !== null).length}/{currentQuiz.questions.length}
-            </span>
-          </div>
-          
-          <button 
-            style={styles.button}
-            onClick={nextQuestion}
-            disabled={loading}
-          >
-            {currentQuestion === currentQuiz.questions.length - 1 ? 
-              (loading ? 'Submitting...' : 'Submit Quiz') : 
-              'Next →'
-            }
-          </button>
-        </div>
-        
-        {/* Question Navigation */}
-        <div style={{ marginTop: '30px', textAlign: 'center' }}>
-          <h4>Quick Navigation:</h4>
-          <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', marginTop: '15px' }}>
-            {currentQuiz.questions.map((_, index) => (
-              <button
-                key={index}
+            </div>
+            
+            {/* Navigation */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '30px' }}>
+              <button 
                 style={{
                   ...styles.button,
-                  width: '40px',
-                  height: '40px',
-                  borderRadius: '50%',
-                  padding: '0',
-                  fontSize: '14px',
-                  background: userAnswers[index] !== null 
-                    ? 'linear-gradient(45deg, #4CAF50, #45a049)' 
-                    : index === currentQuestion 
-                      ? 'linear-gradient(45deg, #ff9800, #f57c00)'
-                      : 'linear-gradient(45deg, #ddd, #bbb)',
-                  color: userAnswers[index] !== null || index === currentQuestion ? 'white' : '#666'
+                  opacity: currentQuestion === 0 ? 0.5 : 1,
+                  cursor: currentQuestion === 0 ? 'not-allowed' : 'pointer'
                 }}
-                onClick={() => setCurrentQuestion(index)}
-                disabled={loading}
+                onClick={previousQuestion}
+                disabled={currentQuestion === 0 || loading}
               >
-                {index + 1}
+                ← Previous
               </button>
-            ))}
-          </div>
-          <p style={{ color: '#666', fontSize: '14px', marginTop: '10px' }}>
-            🟢 Answered | 🟠 Current | ⚪ Not Answered
-          </p>
-        </div>
-
-        {/* ENHANCED Passage Navigation */}
-        {passages.length > 0 && (
-          <div style={{ 
-            marginTop: '20px', 
-            padding: '15px', 
-            background: '#f0f8ff', 
-            borderRadius: '10px',
-            border: '1px solid #e3f2fd'
-          }}>
-            <h4 style={{ margin: '0 0 15px 0', color: '#1976D2', textAlign: 'center' }}>
-              📖 Reference Passages
-            </h4>
-            <div style={{ 
-              display: 'flex', 
-              flexWrap: 'wrap', 
-              justifyContent: 'center', 
-              gap: '10px' 
-            }}>
-              {passages.map((passage, index) => {
-                // Check if current question is related to this passage
-                const isRelated = currentQ.passageId === passage.id;
-                
-                return (
-                  <button
-                    key={passage.id}
-                    style={{
-                      ...styles.button,
-                      padding: '8px 16px',
-                      borderRadius: '20px',
-                      fontSize: '14px',
-                      background: isRelated 
-                        ? 'linear-gradient(45deg, #4CAF50, #45a049)' 
-                        : 'linear-gradient(45deg, #2196F3, #1976D2)',
-                      border: isRelated ? '2px solid #2E7D32' : 'none',
-                      position: 'relative'
-                    }}
-                    onClick={() => showPassage(passage)}
-                    disabled={loading}
-                  >
-                    {passage.id}
-                    {isRelated && (
-                      <span style={{ 
-                        position: 'absolute', 
-                        top: '-8px', 
-                        right: '-8px',
-                        background: '#FF5722',
-                        color: 'white',
-                        borderRadius: '50%',
-                        width: '20px',
-                        height: '20px',
-                        fontSize: '12px',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center'
-                      }}>
-                        !
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
-            </div>
-            <p style={{ 
-              color: '#666', 
-              fontSize: '12px', 
-              textAlign: 'center',
-              margin: '10px 0 0 0' 
-            }}>
-              💡 Green: Related to current question | Blue: General reference
-            </p>
-          </div>
-        )}
-
-        {/* ENHANCED Passage Modal */}
-        {showPassageModal && selectedPassage && (
-          <div style={{
-            position: 'fixed',
-            top: 0,
-            left: 0,
-            right: 0,
-            bottom: 0,
-            background: 'rgba(0,0,0,0.7)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 1000,
-            padding: '20px'
-          }}>
-            <div style={{
-              background: 'white',
-              padding: '30px',
-              borderRadius: '15px',
-              maxWidth: '700px',
-              maxHeight: '85vh',
-              overflow: 'auto',
-              margin: '20px',
-              boxShadow: '0 10px 30px rgba(0,0,0,0.3)',
-              border: '2px solid #2196F3'
-            }}>
-              <div style={{ 
-                display: 'flex', 
-                justifyContent: 'space-between', 
-                alignItems: 'center',
-                marginBottom: '20px',
-                borderBottom: '2px solid #f0f0f0',
-                paddingBottom: '15px'
-              }}>
-                <h3 style={{ 
-                  margin: 0, 
-                  color: '#1976D2',
-                  fontSize: '24px',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px'
-                }}>
-                  📖 {selectedPassage.title || selectedPassage.id}
-                </h3>
-                <button
-                  style={{
-                    background: '#f44336',
-                    color: 'white',
-                    border: 'none',
-                    borderRadius: '50%',
-                    width: '30px',
-                    height: '30px',
-                    cursor: 'pointer',
-                    fontSize: '16px',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                  onClick={closePassageModal}
-                >
-                  ×
-                </button>
-              </div>
-              
-              <div style={{ 
-                marginBottom: '25px', 
-                lineHeight: '1.8',
-                fontSize: '16px',
-                color: '#333',
-                background: '#fafafa',
-                padding: '20px',
-                borderRadius: '10px',
-                border: '1px solid #e0e0e0',
-                maxHeight: '400px',
-                overflowY: 'auto'
-              }}>
-                {selectedPassage.content}
-              </div>
               
               <div style={{ textAlign: 'center' }}>
-                <button 
-                  style={{
-                    ...styles.button,
-                    background: 'linear-gradient(45deg, #2196F3, #1976D2)',
-                    padding: '12px 30px',
-                    fontSize: '16px'
-                  }} 
-                  onClick={closePassageModal}
-                >
-                  Close Passage
-                </button>
+                <span style={{ color: '#666' }}>
+                  Answered: {userAnswers.filter(a => a !== null).length}/{currentQuiz.questions.length}
+                </span>
               </div>
+              
+              <button 
+                style={styles.button}
+                onClick={nextQuestion}
+                disabled={loading}
+              >
+                {currentQuestion === currentQuiz.questions.length - 1 ? 
+                  (loading ? 'Submitting...' : 'Submit Quiz') : 
+                  'Next →'
+                }
+              </button>
+            </div>
+            
+            {/* Question Navigation */}
+            <div style={{ marginTop: '30px', textAlign: 'center' }}>
+              <h4>Quick Navigation:</h4>
+              <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', marginTop: '15px' }}>
+                {currentQuiz.questions.map((_, index) => (
+                  <button
+                    key={index}
+                    style={{
+                      ...styles.button,
+                      width: '40px',
+                      height: '40px',
+                      borderRadius: '50%',
+                      padding: '0',
+                      fontSize: '14px',
+                      background: userAnswers[index] !== null 
+                        ? 'linear-gradient(45deg, #4CAF50, #45a049)' 
+                        : index === currentQuestion 
+                          ? 'linear-gradient(45deg, #ff9800, #f57c00)'
+                          : 'linear-gradient(45deg, #ddd, #bbb)',
+                      color: userAnswers[index] !== null || index === currentQuestion ? 'white' : '#666'
+                    }}
+                    onClick={() => setCurrentQuestion(index)}
+                    disabled={loading}
+                  >
+                    {index + 1}
+                  </button>
+                ))}
+              </div>
+              <p style={{ color: '#666', fontSize: '14px', marginTop: '10px' }}>
+                🟢 Answered | 🟠 Current | ⚪ Not Answered
+              </p>
             </div>
           </div>
-        )}
-      </div>
-    </div>
-  );
-}
+        </div>
+      );
+    }
 
+    // Results View
     if (studentView === 'result') {
       const results = calculateStudentResults();
       
@@ -2728,4 +2491,3 @@ if (studentView === 'waitingForAdmin') {
   return null;
 };
 export default IntegratedQuizApp;
-
