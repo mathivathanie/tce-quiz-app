@@ -2297,149 +2297,34 @@ if (activeAdminSection === 'violations') {
     }
 
     // Results View
+    //harini changed
     if (studentView === 'result') {
-      const results = calculateStudentResults();
-      
-      return (
-        <div style={styles.container}>
-          <div style={styles.card}>
-            <LoadingError />
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-              <h1 style={{ color: '#4CAF50', marginBottom: '10px' }}>🎉 Quiz Completed!</h1>
-              <h2>Results Summary</h2>
-            </div>
-            
-            {/* Score Circle */}
-            <div style={styles.scoreCircle(results.scorePercentage)}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{results.scorePercentage}%</div>
-                <div style={{ fontSize: '16px', fontWeight: 'normal' }}>Grade: {results.grade}</div>
-              </div>
-            </div>
-            
-            {/* Detailed Results */}
-            <div style={styles.resultCard}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', textAlign: 'left' }}>
-                <div>
-                  <strong>Student Name:</strong><br />
-                  {studentInfo.name}
-                </div>
-                <div>
-                  <strong>Registration No:</strong><br />
-                  {studentInfo.regNo}
-                </div>
-                <div>
-                  <strong>Department:</strong><br />
-                  {studentInfo.department}
-                </div>
-                <div>
-                  <strong>Quiz Name:</strong><br />
-                  {currentQuiz.name}
-                </div>
-                <div>
-                  <strong>Total Questions:</strong><br />
-                  {currentQuiz.questions.length}
-                </div>
-                <div>
-                  <strong>Correct Answers:</strong><br />
-                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>{results.correctAnswers}</span>
-                </div>
-                <div>
-                  <strong>Wrong Answers:</strong><br />
-                  <span style={{ color: '#f44336', fontWeight: 'bold' }}>{results.wrongAnswers}</span>
-                </div>
-                <div>
-                  <strong>Final Score:</strong><br />
-                  <span style={{ color: '#667eea', fontWeight: 'bold' }}>{results.scorePercentage}%</span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Answer Review */}
-            <div style={{ marginTop: '30px' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>Answer Review</h3>
-              {currentQuiz.questions.map((question, index) => {
-                const userAnswer = userAnswers[index];
-                const correctAnswer = question.correct;
-                const isCorrect = userAnswer === correctAnswer;
-                
-                return (
-                  <div key={index} style={{
-                    ...styles.questionCard,
-                    borderLeft: `4px solid ${isCorrect ? '#4CAF50' : '#f44336'}`
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-                      <span style={{ 
-                        fontSize: '20px', 
-                        marginRight: '10px',
-                        color: isCorrect ? '#4CAF50' : '#f44336'
-                      }}>
-                        {isCorrect ? '✅' : '❌'}
-                      </span>
-                      <strong>Q{index + 1}:</strong>
-                    </div>
-                    
-                    <p style={{ marginBottom: '15px' }}>{question.question}</p>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div>
-                        <strong>Your Answer:</strong><br />
-                        <span style={{ 
-                          color: isCorrect ? '#4CAF50' : '#f44336',
-                          fontWeight: 'bold'
-                        }}>
-                          {userAnswer ? `${userAnswer}) ${question.options[userAnswer.toLowerCase()]}` : 'Not Answered'}
-                        </span>
-                      </div>
-                      <div>
-                        <strong>Correct Answer:</strong><br />
-                        <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                          {correctAnswer}) {question.options[correctAnswer.toLowerCase()]}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            {/* Action Buttons */}
-            <div style={{ textAlign: 'center', marginTop: '30px' }}>
-              <button style={styles.button} onClick={restartStudent} disabled={loading}>
-                Take Another Quiz
-              </button>
-              <button 
-                style={{...styles.button, marginLeft: '10px'}} 
-                onClick={() => setCurrentView('home')}
-                disabled={loading}
-              >
-                Go to Home
-              </button>
-            </div>
-            
-            {/* Performance Message */}
-            <div style={{ 
-              marginTop: '20px', 
-              padding: '20px', 
-              borderRadius: '10px',
-              textAlign: 'center',
-              background: results.scorePercentage >= 70 ? '#d4edda' : results.scorePercentage >= 50 ? '#fff3cd' : '#f8d7da',
-              border: `1px solid ${results.scorePercentage >= 70 ? '#c3e6cb' : results.scorePercentage >= 50 ? '#ffeaa7' : '#f5c6cb'}`,
-              color: results.scorePercentage >= 70 ? '#155724' : results.scorePercentage >= 50 ? '#856404' : '#721c24'
-            }}>
-              <strong>
-                {results.scorePercentage >= 90 ? '🏆 Excellent! Outstanding performance!' :
-                 results.scorePercentage >= 80 ? '🎉 Great job! You did very well!' :
-                 results.scorePercentage >= 70 ? '👍 Good work! Keep it up!' :
-                 results.scorePercentage >= 60 ? '👌 Fair performance. Room for improvement!' :
-                 results.scorePercentage >= 50 ? '📚 You passed, but consider reviewing the material.' :
-                 '📖 Keep studying and try again. You can do better!'}
-              </strong>
-            </div>
+  const { scorePercentage } = calculateStudentResults(); // Only take percentage
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.resultCard}>
+          <h2>🎉 Quiz Completed</h2>
+          <div style={styles.scoreCircle(scorePercentage)}>
+            {scorePercentage}%
           </div>
+          <p style={{ fontSize: '1.1rem', color: '#666' }}>
+            Thank you for completing the quiz.
+          </p>
         </div>
-      );
-    }
+
+        <div style={{ textAlign: 'center', marginTop: '30px' }}>
+          <button style={styles.button} onClick={restartStudent}>
+            Back to Home
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+  
     // Waiting for Admin View - ADD THIS SECTION
 if (studentView === 'waitingForAdmin') {
   return (
@@ -2491,4 +2376,3 @@ if (studentView === 'waitingForAdmin') {
   return null;
 };
 export default IntegratedQuizApp;
-
