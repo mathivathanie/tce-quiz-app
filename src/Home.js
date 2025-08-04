@@ -25,6 +25,7 @@ const IntegratedQuizApp = () => {
   const [optionD, setOptionD] = useState('');
   const [correctOption, setCorrectOption] = useState('');
   const [resultSessionCode, setResultSessionCode] = useState('');
+  const [resultFilter, setResultFilter] = useState('all');
 // ADD these new CSV states:
 const [entryMethod, setEntryMethod] = useState('manual'); // 'manual' or 'csv'
 const [csvFile, setCsvFile] = useState(null);
@@ -1666,6 +1667,11 @@ if (activeAdminSection === 'create') {
 
     // Results Section - UPDATED WITH CSV EXPORT
     if (activeAdminSection === 'results') {
+      const filteredResults = studentResults.filter(result => {
+  if (resultFilter === 'above80') return result.percentage >= 80;
+  if (resultFilter === 'below40') return result.percentage < 40;
+  return true; // default: show all
+});
       return (
         <div style={styles.container}>
           <div style={styles.card}>
@@ -1687,6 +1693,29 @@ if (activeAdminSection === 'create') {
                 </button>
               )}
             </div>
+
+            {/* Filter Buttons: All, Above 80%, Below 40% */}
+<div style={{ display: 'flex', justifyContent: 'center', gap: '10px', marginBottom: '20px', flexWrap: 'wrap' }}>
+  <button 
+    style={{ ...styles.button, background: resultFilter === 'all' ? '#2196F3' : '#ccc' }}
+    onClick={() => setResultFilter('all')}
+  >
+    All
+  </button>
+  <button 
+    style={{ ...styles.button, background: resultFilter === 'above80' ? '#4CAF50' : '#ccc' }}
+    onClick={() => setResultFilter('above80')}
+  >
+    ≥ 80%
+  </button>
+  <button 
+    style={{ ...styles.button, background: resultFilter === 'below40' ? '#f44336' : '#ccc' }}
+    onClick={() => setResultFilter('below40')}
+  >
+    &lt; 40%
+  </button>
+</div>
+
             
             <input
               type="text"
@@ -1713,7 +1742,7 @@ if (activeAdminSection === 'create') {
                       <p style={{ color: '#666', marginBottom: '20px' }}>
                         Total Submissions: {studentResults.length}
                       </p>
-                      {studentResults.map((result, index) => (
+                      {filteredResults.map((result, index) => (
                         <div key={index} style={{
                           background: '#f9f9f9',
                           padding: '20px',
