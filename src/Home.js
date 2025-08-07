@@ -44,7 +44,7 @@ const [csvErrors, setCsvErrors] = useState([]);
   });
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [userAnswers, setUserAnswers] = useState([]);
-  const [timeLeft, setTimeLeft] = useState(30 * 60);
+  const [timeLeft, setTimeLeft] = useState(90 * 60);
   const [showWarning, setShowWarning] = useState(false);
   // NEW: Track tab switches
   const [tabSwitchCount, setTabSwitchCount] = useState(0); 
@@ -62,7 +62,7 @@ const [resumeToken, setResumeToken] = useState('');
 const [isResuming, setIsResuming] = useState(false);
 const [suspensionMessage, setSuspensionMessage] = useState('');
 const [violationId, setViolationId] = useState(null);
-const [originalTimeAllotted, setOriginalTimeAllotted] = useState(30 * 60);
+const [originalTimeAllotted, setOriginalTimeAllotted] = useState(90 * 60);
 const [timeSpent, setTimeSpent] = useState(0);
 
 // Add these new state variables:
@@ -72,6 +72,7 @@ const [userRole, setUserRole] = useState('');
 const [currentUser, setCurrentUser] = useState(null);
 const [violationCount, setViolationCount] = useState(0);
 
+const [registrationError, setRegistrationError] = useState('');
 // Registration states
 const [showRegistration, setShowRegistration] = useState(false);
 const [registrationData, setRegistrationData] = useState({
@@ -79,9 +80,8 @@ const [registrationData, setRegistrationData] = useState({
   email: '',
   password: '',
   confirmPassword: '',
-  role: 'student' // default to student
 });
-const [registrationError, setRegistrationError] = useState('');
+const [predictedRole, setPredictedRole] = useState('');
 
 
 // Comprehension passage states
@@ -162,6 +162,32 @@ const [selectedPassage, setSelectedPassage] = useState(null);
     else if (percentage >= 50) return 'D';
     else return 'F';
   };
+
+// Add this helper function to determine role from email
+const determineRoleFromEmail = (email) => {
+  const domain = email.toLowerCase().split('@')[1];
+  
+  // Faculty/Admin domains
+  const facultyDomains = [
+    'faculty.college.edu',
+    'admin.college.edu',
+    'staff.college.edu',
+    'instructor.college.edu'
+  ];
+  
+  return facultyDomains.includes(domain) ? 'admin' : 'student';
+};
+
+const handleEmailChange = (email) => {
+  setRegistrationData({...registrationData, email});
+  
+  if (email.includes('@')) {
+    const role = determineRoleFromEmail(email);
+    setPredictedRole(role);
+  } else {
+    setPredictedRole('');
+  }
+};
 
   // NEW: Handle CSV export for current results
   const handleExportCSV = () => {
@@ -273,18 +299,22 @@ const handleUserRegistration = async () => {
     return;
   }
   
+  // Auto-determine role from email
+  const role = determineRoleFromEmail(registrationData.email);
+  
   try {
     const response = await apiCall('/api/user/register', 'POST', {
       name: registrationData.name,
       email: registrationData.email,
       password: registrationData.password,
-      role: registrationData.role
+      role // Send auto-determined role
     });
     
     if (response.success) {
-      alert('Registration successful! Please login with your credentials.');
+      alert(`Registration successful as ${role === 'admin' ? 'Faculty' : 'Student'}! Please login with your credentials.`);
       setShowRegistration(false);
-      setRegistrationData({ name: '', email: '', password: '', confirmPassword: '', role: 'student' });
+      setRegistrationData({ name: '', email: '', password: '', confirmPassword: '' });
+      setPredictedRole('');
       setRegistrationError('');
     }
   } catch (error) {
@@ -622,12 +652,52 @@ const clearCsvUpload = () => {
     }
   };
 
+ //shuffle
+function shuffleArray(array) {
+  const newArray = [...array];
+  for (let i = newArray.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
+  }
+  return newArray;
+}
+
  const handleJoinQuiz = async () => {
   try {
     const quiz = await apiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
     
     if (quiz) {
       if (quiz.isActive && quiz.questions.length > 0) {
+
+        const shuffledQuestions = shuffleArray(quiz.questions).map((q) => {
+          const optionsArray = [
+            { label: 'A', text: q.options.a },
+            { label: 'B', text: q.options.b },
+            { label: 'C', text: q.options.c },
+            { label: 'D', text: q.options.d },
+          ];
+
+          // 🔁 Shuffle options
+          const shuffledOptions = shuffleArray(optionsArray);
+
+          // 🔁 Rebuild options object and correct answer
+          const newOptions = {};
+          let newCorrect = '';
+
+          shuffledOptions.forEach((opt, idx) => {
+            const label = ['a', 'b', 'c', 'd'][idx];
+            newOptions[label] = opt.text;
+            if (opt.label === q.correct) {
+              newCorrect = label.toUpperCase();
+            }
+          });
+
+          return {
+            ...q,
+            options: newOptions,
+            correct: newCorrect,
+          };
+        });
                        // Check if quiz has audio by making a test request
                try {
                  console.log(`Checking audio for session: ${quiz.sessionId}`);
@@ -645,9 +715,10 @@ const clearCsvUpload = () => {
                  quiz.hasAudio = false;
                }
         
-        setCurrentQuiz(quiz);
+       // Update quiz with shuffled questions
+        setCurrentQuiz({ ...quiz, questions: shuffledQuestions });
         setStudentView('form');
-        setUserAnswers(new Array(quiz.questions.length).fill(null));
+        setUserAnswers(new Array(shuffledQuestions.length).fill(null));
       } else if (!quiz.isActive) {
         alert('This quiz is not currently active. Please contact your instructor.');
       } else {
@@ -752,7 +823,7 @@ const handleRestartStudentQuiz = async (violation) => {
 
     setStudentView('quiz');
     setCurrentQuestion(0);
-    setTimeLeft(30 * 60);
+    setTimeLeft(90 * 60);
     setTabSwitchCount(0); // UPDATED: Reset tab switch counter
   };
 
@@ -851,7 +922,7 @@ const restartStudent = () => {
   setStudentInfo({ name: '', regNo: '', department: '' });
   setCurrentQuestion(0);
   setUserAnswers([]);
-  setTimeLeft(30 * 60);
+  setTimeLeft(90 * 60);
   setTabSwitchCount(0);
 };
 
@@ -889,6 +960,26 @@ useEffect(() => {
       if (timerInterval) clearInterval(timerInterval);
     };
   }, [studentView, timeLeft, submitQuiz]);
+
+ useEffect(() => {
+   if (studentView !== 'quiz') return;
+ 
+   const handleContextMenu = (e) => e.preventDefault();
+   const handleKeyDown = (e) => {
+     if ((e.ctrlKey || e.metaKey) && (e.key.toLowerCase() === 'c' || e.key.toLowerCase() === 'x')) {
+       e.preventDefault();
+     }
+   };
+ 
+   document.addEventListener('contextmenu', handleContextMenu);
+   document.addEventListener('keydown', handleKeyDown);
+ 
+   return () => {
+     document.removeEventListener('contextmenu', handleContextMenu);
+     document.removeEventListener('keydown', handleKeyDown);
+   };
+ }, [studentView]);
+
 
   // Security effects for student quiz
   useEffect(() => {
@@ -1066,8 +1157,8 @@ const handleResumeQuiz = async () => {
         setStudentInfo(response.studentInfo);
         setCurrentQuestion(0);
         setUserAnswers(new Array(response.quizData.questions.length).fill(null));
-        setTimeLeft(response.quizData.timeLimit || 30 * 60);
-        setOriginalTimeAllotted(response.quizData.timeLimit || 30 * 60);
+        setTimeLeft(response.quizData.timeLimit || 90 * 60);
+        setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
         setTabSwitchCount(0);
         setIsResuming(true);
         setStudentView('quiz');
@@ -1115,6 +1206,36 @@ const checkPendingResume = async (studentName, regNo, sessionId) => {
   backgroundRepeat: 'no-repeat',
   padding: '20px',
   fontFamily: 'Arial, sans-serif',
+}
+,
+creditGuidanceContainer: {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'flex-start',
+  marginTop: '50px',
+  padding: '20px',
+  backgroundColor: 'rgba(255, 255, 255, 0.85)',
+  borderRadius: '12px',
+  boxShadow: '0 0 10px rgba(0,0,0,0.1)',
+  fontFamily: 'Segoe UI, sans-serif'
+},
+
+creditBox: {
+  width: '45%'
+},
+
+creditHeading: {
+  fontSize: '18px',
+  marginBottom: '8px',
+  color: '#333',
+  borderBottom: '2px solid #aaa',
+  display: 'inline-block'
+},
+
+creditText: {
+  margin: 0,
+  lineHeight: '1.6',
+  fontSize: '16px'
 }
 ,
     card: {
@@ -1355,8 +1476,46 @@ audioButton: {
   fontWeight: 'bold',
   margin: '2px 5px',
   transition: 'all 0.3s ease'
-}
+},footerBlack: {
+  backgroundColor: '#999ba0ff',
+  color: '#681c1cff',
+  display: 'flex',
+  justifyContent: 'space-around',
+  alignItems: 'flex-start',
+  padding: '40px 20px',
+  marginTop: '60px',
+  fontFamily: 'Segoe UI, sans-serif',
+  fontSize: '15px',
+  borderTop: '2px solid #b0bec0ff',
+  borderRadius: '20px 20px 0 0',
+  position: 'relative'
+},
 
+footerColumn: {
+  width: '45%',
+  textAlign: 'left'
+},
+
+footerHeading: {
+  fontSize: '16px',
+  fontWeight: '600',
+  marginBottom: '10px',
+  borderBottom: '1px solid #555',
+  paddingBottom: '5px'
+},
+
+footerText: {
+  margin: 0,
+  lineHeight: '1.7',
+  fontSize: '14px',
+  color: '#f4e3e3ff'
+},
+
+verticalDivider: {
+  width: '1px',
+  backgroundColor: '#444',
+  margin: '0 20px'
+}
 
   };
 
@@ -1464,14 +1623,16 @@ audioButton: {
               style={styles.input}
               disabled={loading}
             />
-            <input
-              type="email"
-              placeholder="Email Address *"
-              value={registrationData.email}
-              onChange={(e) => setRegistrationData({...registrationData, email: e.target.value})}
-              style={styles.input}
-              disabled={loading}
-            />
+           <input
+  type="email"
+  placeholder="Email Address *"
+  value={registrationData.email}
+  onChange={(e) => handleEmailChange(e.target.value)}
+  style={styles.input}
+  disabled={loading}
+/>
+
+
             <input
               type="password"
               placeholder="Password *"
@@ -1489,15 +1650,7 @@ audioButton: {
               disabled={loading}
             />
             
-            <select
-              value={registrationData.role}
-              onChange={(e) => setRegistrationData({...registrationData, role: e.target.value})}
-              style={styles.select}
-              disabled={loading}
-            >
-              <option value="student">Student</option>
-              <option value="admin">Admin</option>
-            </select>
+            
             
             <div style={{ textAlign: 'center', marginTop: '20px' }}>
               <button style={styles.button} onClick={handleUserRegistration} disabled={loading}>
@@ -2498,7 +2651,7 @@ if (activeAdminSection === 'violations') {
               </button>
               <h2>Student Information</h2>
               <p style={{ color: '#666' }}>Quiz: {currentQuiz?.name}</p>
-              <p style={{ color: '#666' }}>Questions: {currentQuiz?.questions?.length || 0} | Time: 30 minutes</p>
+              <p style={{ color: '#666' }}>Questions: {currentQuiz?.questions?.length || 0} | Time: 90 minutes</p>
             </div>
             
             <div style={{ maxWidth: '500px', margin: '0 auto' }}>
@@ -2576,6 +2729,8 @@ if (activeAdminSection === 'violations') {
   </div>
 )}
 
+
+
             </div>
           </div>
         </div>
@@ -2624,7 +2779,7 @@ if (activeAdminSection === 'violations') {
             </div>
             
             {/* Question */}
-            <div style={styles.questionCard}>
+            <div style={{ ...styles.questionCard, userSelect: 'none' }}>
               <h3 style={{ marginBottom: '20px', color: '#333' }}>{currentQ.question}</h3>
               
               {/* Options */}
@@ -2943,27 +3098,52 @@ if (activeAdminSection === 'violations') {
     if (studentView === 'result') {
   const { scorePercentage } = calculateStudentResults(); // Only take percentage
 
-  return (
-    <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.resultCard}>
-          <h2>🎉 Quiz Completed</h2>
-          <div style={styles.scoreCircle(scorePercentage)}>
-            {scorePercentage}%
-          </div>
-          <p style={{ fontSize: '1.1rem', color: '#666' }}>
-            Thank you for completing the quiz.
-          </p>
+ return (
+  <div style={styles.container}>
+    <div style={styles.card}>
+      <div style={styles.resultCard}>
+        <h2>🎉 Quiz Completed</h2>
+        <div style={styles.scoreCircle(scorePercentage)}>
+          {scorePercentage}%
         </div>
-
-        <div style={{ textAlign: 'center', marginTop: '30px' }}>
-          <button style={styles.button} onClick={restartStudent}>
-            Back to Home
-          </button>
-        </div>
+        <p style={{ fontSize: '1.1rem', color: '#666' }}>
+          Thank you for completing the quiz.
+        </p>
       </div>
+
+      <div style={{ textAlign: 'center', marginTop: '30px' }}>
+        <button style={styles.button} onClick={restartStudent}>
+          Back to Home
+        </button>
+      </div>
+
+     <div style={styles.footerBlack}>
+  <div style={styles.footerColumn}>
+    <div style={styles.footerHeading}>Developed By</div>
+    <p style={styles.footerText}>
+      Mathivathani E<br />
+      Roshini M<br />
+      Shanmathi N<br />
+      Harini R<br />
+      Sanchana R
+    </p>
+  </div>
+
+  <div style={styles.verticalDivider}></div>
+
+  <div style={styles.footerColumn}>
+    <div style={styles.footerHeading}>Under the guidance of</div>
+    <p style={styles.footerText}>
+      Department of Information Technology<br />
+      <strong style={{ color: '#f2eaeaff' }}>C.V. Nisha Angeline</strong>
+    </p>
+  </div>
+</div>
+
     </div>
-  );
+  </div>
+);
+
 }
     // Waiting for Admin View - ADD THIS SECTION
 if (studentView === 'waitingForAdmin') {

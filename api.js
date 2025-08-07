@@ -216,7 +216,7 @@ const quizViolationSchema = new mongoose.Schema({
   violationType: {
     type: String,
     required: true,
-    enum: ['tab_switch_violation', 'time_expired', 'suspicious_activity']
+    enum: ['tab_switch_violation', 'time_expired', 'suspicious_activity','split_screen_violation']
   },
   currentQuestion: {
     type: Number,
@@ -365,7 +365,7 @@ app.post('/api/admin/login', async (req, res) => {
 });
 
 // User registration
-app.post('/api/user/register', async (req, res) => {
+/*app.post('/api/user/register', async (req, res) => {
   try {
     const { name, email, password, role = 'student' } = req.body;
     
@@ -450,6 +450,63 @@ app.post('/api/user/register', async (req, res) => {
       success: false, 
       message: 'Server error during registration' 
     });
+  }
+});*/
+
+
+// In your /api/user/register endpoint
+app.post('/api/user/register', async (req, res) => {
+  try {
+    const { name, email, password, role } = req.body;
+    
+    // Server-side role validation based on email domain
+    const determineRoleFromEmail = (email) => {
+      const domain = email.toLowerCase().split('@')[1];
+      
+      const facultyDomains = [
+        'faculty.college.edu',
+        'admin.college.edu', 
+        'staff.college.edu',
+        'instructor.college.edu'
+      ];
+      
+      return facultyDomains.includes(domain) ? 'admin' : 'student';
+    };
+    
+    // Override any role sent from frontend with server-determined role
+    const finalRole = determineRoleFromEmail(email);
+    
+    // Check if user already exists
+    const existingUser = await User.findOne({ email });
+    if (existingUser) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'User already exists with this email' 
+      });
+    }
+    
+    // Create new user with auto-determined role
+    const newUser = new User({
+      name,
+      email,
+      password: await bcrypt.hash(password, 10),
+      role: finalRole // Use server-determined role
+    });
+    
+    await newUser.save();
+    
+    res.json({ 
+      success: true, 
+      message: `User registered successfully as ${finalRole}`,
+      user: {
+        name: newUser.name,
+        email: newUser.email,
+        role: newUser.role
+      }
+    });
+    
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
   }
 });
 
