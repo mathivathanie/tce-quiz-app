@@ -1,0 +1,1 @@
+mongodb+srv://sanchana:25@cluster.thgduph.mongodb.net/?retryWrites=true&w=majority&appName=cluster

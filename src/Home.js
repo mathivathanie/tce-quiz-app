@@ -1,5 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
-
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 const IntegratedQuizApp = () => {
   // Configuration - Update these URLs to match your backend
   const API_BASE_URL = 'http://localhost:3001'; // Change this to your backend URL
@@ -47,7 +46,10 @@ const [csvErrors, setCsvErrors] = useState([]);
   const [userAnswers, setUserAnswers] = useState([]);
   const [timeLeft, setTimeLeft] = useState(30 * 60);
   const [showWarning, setShowWarning] = useState(false);
-  const [tabSwitchCount, setTabSwitchCount] = useState(0); // NEW: Track tab switches
+  // NEW: Track tab switches
+  const [tabSwitchCount, setTabSwitchCount] = useState(0); 
+  const [warningMessage, setWarningMessage] = useState('');
+
 
 // ENHANCED: Quiz violations and resume states (ADD THESE)
 const [quizViolations, setQuizViolations] = useState([]);
@@ -68,7 +70,7 @@ const [userEmail, setUserEmail] = useState('');
 const [userPassword, setUserPassword] = useState('');
 const [userRole, setUserRole] = useState('');
 const [currentUser, setCurrentUser] = useState(null);
-
+const [violationCount, setViolationCount] = useState(0);
 
 // Registration states
 const [showRegistration, setShowRegistration] = useState(false);
@@ -81,6 +83,19 @@ const [registrationData, setRegistrationData] = useState({
 });
 const [registrationError, setRegistrationError] = useState('');
 
+
+// Comprehension passage states
+const [passageText, setPassageText] = useState('');
+const [passageTitle, setPassageTitle] = useState('');
+const [passages, setPassages] = useState([]);
+const [showPassageModal, setShowPassageModal] = useState(false);
+// Audio states
+const [audioFile, setAudioFile] = useState(null);
+const [audioUrl, setAudioUrl] = useState('');
+const [isAudioPlaying, setIsAudioPlaying] = useState(false);
+const audioRef = useRef(null);
+const [showAudioUpload, setShowAudioUpload] = useState(false);
+const [selectedPassage, setSelectedPassage] = useState(null);
 
   // NEW: CSV Export Function
   const exportToCSV = (data, filename) => {
@@ -481,6 +496,89 @@ const handleCsvUpload = async () => {
   }
 };
 
+// Add passage to current session
+// Add passage to current session
+const handleAddPassage = async () => {
+  if (!passageTitle.trim() || !passageText.trim() || !currentSessionId) {
+    alert('Please fill in both title and passage text!');
+    return;
+  }
+  
+  try {
+    const passageData = {
+      title: passageTitle.trim(),
+      content: passageText.trim(),
+    };
+
+    const response = await apiCall(`/api/quiz-sessions/${currentSessionId}/passages`, 'POST', passageData);
+    
+    // Reset form
+    setPassageTitle('');
+    setPassageText('');
+    
+    // Refresh sessions to show updated passages
+    await loadQuizSessions();
+    
+    alert('Passage added successfully!');
+  } catch (error) {
+    alert('Failed to add passage: ' + error.message);
+  }
+};
+// Handle audio file upload
+const handleAudioFileSelect = (event) => {
+  const file = event.target.files[0];
+  if (file && file.type.startsWith('audio/')) {
+    setAudioFile(file);
+    const url = URL.createObjectURL(file);
+    setAudioUrl(url);
+  } else {
+    alert('Please select a valid audio file');
+    event.target.value = '';
+  }
+};
+
+// Upload audio to session
+const handleAddAudio = async () => {
+  if (!audioFile) {
+    alert('Please select an audio file first!');
+    return;
+  }
+  
+  if (!currentSessionId) {
+    alert('Please create or select a quiz session first!');
+    return;
+  }
+  
+  const formData = new FormData();
+  formData.append('audio', audioFile);
+  
+  try {
+    setLoading(true);
+    const response = await fetch(`${API_BASE_URL}/api/quiz-sessions/${currentSessionId}/audio`, {
+      method: 'POST',
+      body: formData
+    });
+    
+    if (response.ok) {
+      alert('Audio uploaded successfully!');
+      setAudioFile(null);
+      setAudioUrl('');
+      // Clear the file input
+      const fileInput = document.querySelector('input[type="file"][accept="audio/*"]');
+      if (fileInput) fileInput.value = '';
+      await loadQuizSessions();
+    } else {
+      const error = await response.text();
+      alert('Failed to upload audio: ' + error);
+    }
+  } catch (error) {
+    alert('Failed to upload audio: ' + error.message);
+  } finally {
+    setLoading(false);
+  }
+};
+
+
 // Clear CSV upload
 const clearCsvUpload = () => {
   setCsvFile(null);
@@ -524,27 +622,42 @@ const clearCsvUpload = () => {
     }
   };
 
-  // Student joins quiz
-  const handleJoinQuiz = async () => {
-    try {
-      const quiz = await apiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
-      
-      if (quiz) {
-        if (quiz.isActive && quiz.questions.length > 0) {
-          setCurrentQuiz(quiz);
-          setStudentView('form');
-          setUserAnswers(new Array(quiz.questions.length).fill(null));
-        } else if (!quiz.isActive) {
-          alert('This quiz is not currently active. Please contact your instructor.');
-        } else {
-          alert('This quiz has no questions yet. Please try again later.');
-        }
+ const handleJoinQuiz = async () => {
+  try {
+    const quiz = await apiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
+    
+    if (quiz) {
+      if (quiz.isActive && quiz.questions.length > 0) {
+                       // Check if quiz has audio by making a test request
+               try {
+                 console.log(`Checking audio for session: ${quiz.sessionId}`);
+                 const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${quiz.sessionId}/audio`, {
+                   method: 'HEAD',
+                   headers: {
+                     'Accept': 'audio/*'
+                   }
+                 });
+                 console.log(`Audio check response for ${quiz.sessionId}:`, audioResponse.status, audioResponse.ok);
+                 quiz.hasAudio = audioResponse.ok && audioResponse.status === 200;
+                 console.log(`Audio available for ${quiz.sessionId}:`, quiz.hasAudio);
+               } catch (e) {
+                 console.warn('Audio check failed:', e);
+                 quiz.hasAudio = false;
+               }
+        
+        setCurrentQuiz(quiz);
+        setStudentView('form');
+        setUserAnswers(new Array(quiz.questions.length).fill(null));
+      } else if (!quiz.isActive) {
+        alert('This quiz is not currently active. Please contact your instructor.');
+      } else {
+        alert('This quiz has no questions yet. Please try again later.');
       }
-    } catch (error) {
-      alert('Invalid quiz code or quiz not found. Please check and try again.');
     }
-  };
-
+  } catch (error) {
+    alert('Invalid quiz code or quiz not found. Please check and try again.');
+  }
+};
  // ENHANCED: Load quiz violations
 const loadQuizViolations = async (sessionId) => {
   try {
@@ -723,16 +836,24 @@ const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null
 }, [userAnswers, currentQuiz, studentInfo, currentQuestion, timeLeft, tabSwitchCount, isResuming, originalTimeAllotted]);
 
   // Restart student session
-  const restartStudent = () => {
-    setStudentView('codeEntry');
-    setQuizCode('');
-    setCurrentQuiz(null);
-    setStudentInfo({ name: '', regNo: '', department: '' });
-    setCurrentQuestion(0);
-    setUserAnswers([]);
-    setTimeLeft(30 * 60);
-    setTabSwitchCount(0); // UPDATED: Reset tab switch counter
-  };
+const restartStudent = () => {
+  // Clean up audio
+  const audio = document.querySelector('audio');
+  if (audio) {
+    audio.pause();
+    audio.currentTime = 0;
+  }
+  setIsAudioPlaying(false);
+  
+  setStudentView('codeEntry');
+  setQuizCode('');
+  setCurrentQuiz(null);
+  setStudentInfo({ name: '', regNo: '', department: '' });
+  setCurrentQuestion(0);
+  setUserAnswers([]);
+  setTimeLeft(30 * 60);
+  setTabSwitchCount(0);
+};
 
   // Load results when result session code changes
   useEffect(() => {
@@ -786,17 +907,18 @@ useEffect(() => {
           const newCount = prev + 1;
           
           if (newCount === 1) {
-            // First tab switch - show warning only
-            setShowWarning(true);
-            setTimeout(() => setShowWarning(false), 3000);
-            return newCount;
-          } else if (newCount >= 2) {
-            // Second or more tab switches - auto submit
-            setShowWarning(true);
-            setTimeout(() => setShowWarning(false), 3000);
-            submitQuiz(true, 'tab_switch_violation'); // ✅ Pass the required parameters
-            return newCount;
-          }
+      setWarningMessage("⚠️ WARNING: Do not switch tabs! Next time your quiz will be auto-submitted!");
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 4000);
+      return newCount;
+    } else if (newCount >= 2) {
+      setWarningMessage("🚫 QUIZ AUTO-SUBMITTED: You switched tabs multiple times!");
+      setShowWarning(true);
+      setTimeout(() => setShowWarning(false), 4000);
+      submitQuiz(true, 'tab_switch_violation');
+      return newCount;
+    }
+
           
           return newCount;
         });
@@ -836,6 +958,39 @@ useEffect(() => {
     };
   }, [studentView, submitQuiz]);
 
+ useEffect(() => {
+  const handleResize = () => {
+    const width = window.innerWidth;
+    const height = window.innerHeight;
+
+    const screenWidth = window.screen.width;
+    const screenHeight = window.screen.height;
+
+    const widthRatio = width / screenWidth;
+    const heightRatio = height / screenHeight;
+
+    if ((widthRatio < 0.8 || heightRatio < 0.8) && studentView === 'quiz') {
+      if (violationCount === 0) {
+        // First warning
+        setViolationCount(1);
+        setWarningMessage("⚠️ SPLIT SCREEN DETECTED: Please maximize your screen. Split screen is not allowed during the quiz.");
+setShowWarning(true);
+setTimeout(() => setShowWarning(false), 4000);
+
+      } else {
+        // Second violation - submit quiz
+        setWarningMessage('Split screen detected again. Your quiz has been auto-submitted.');
+    setShowWarning(true);
+    setTimeout(() => setShowWarning(false), 4000);
+    submitQuiz(true, 'split_screen_violation');
+      }
+    }
+  };
+
+  window.addEventListener('resize', handleResize);
+  return () => window.removeEventListener('resize', handleResize);
+}, [studentView, submitQuiz, violationCount]);
+
   const formatTime = (seconds) => {
     const minutes = Math.floor(seconds / 60);
     const secs = seconds % 60;
@@ -864,7 +1019,6 @@ useEffect(() => {
     return { correctAnswers, wrongAnswers, scorePercentage, grade };
   };
 
-// ENHANCED: Student resume quiz with token
 const handleResumeQuiz = async () => {
   if (!resumeToken.trim()) {
     alert('Please enter your resume token!');
@@ -877,6 +1031,23 @@ const handleResumeQuiz = async () => {
     });
 
     if (response.success) {
+      // Check for audio in resumed quiz
+      try {
+        console.log(`Checking audio for resumed session: ${response.quizData.sessionId}`);
+        const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, { 
+          method: 'HEAD',
+          headers: {
+            'Accept': 'audio/*'
+          }
+        });
+        console.log(`Audio check response for resumed session ${response.quizData.sessionId}:`, audioResponse.status, audioResponse.ok);
+        response.quizData.hasAudio = audioResponse.ok && audioResponse.status === 200;
+        console.log(`Audio available for resumed session ${response.quizData.sessionId}:`, response.quizData.hasAudio);
+      } catch (e) {
+        console.warn('Audio check failed in resume:', e);
+        response.quizData.hasAudio = false;
+      }
+      
       if (response.actionType === 'resume') {
         // Resume from where they left off
         setCurrentQuiz(response.quizData);
@@ -936,20 +1107,28 @@ const checkPendingResume = async (studentName, regNo, sessionId) => {
 
   // Styles
   const styles = {
-    container: {
-      minHeight: '100vh',
-      background: 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)',
-      padding: '20px',
-      fontFamily: 'Arial, sans-serif'
-    },
+   container: {
+  minHeight: '100vh',
+  backgroundImage: 'url("/img.jpg")',
+  backgroundSize: 'cover',
+  backgroundPosition: 'center',
+  backgroundRepeat: 'no-repeat',
+  padding: '20px',
+  fontFamily: 'Arial, sans-serif',
+}
+,
     card: {
-      maxWidth: '900px',
-      margin: '0 auto',
-      background: 'white',
-      borderRadius: '15px',
-      padding: '30px',
-      boxShadow: '0 10px 30px rgba(0,0,0,0.1)'
-    },
+  maxWidth: '600px',
+  margin: '0 auto',
+  background: 'rgba(255, 255, 255, 0.85)', // Semi-transparent white
+  backdropFilter: 'blur(8px)',            // Frosted effect
+  borderRadius: '40px 10px',              // Inverted rectangle
+  padding: '40px 30px',
+  boxShadow: '0 12px 40px rgba(0, 0, 0, 0.2)', // Soft shadow
+  border: '2px solid rgba(255,255,255,0.3)',
+  transition: 'all 0.3s ease',
+}
+,
     button: {
       background: 'linear-gradient(45deg, #667eea, #764ba2)',
       color: 'white',
@@ -1122,6 +1301,63 @@ waitingCard: {
   margin: '20px 0',
   border: '2px solid #bbdefb'
 },
+// Add these to the styles object
+passageModal: {
+  position: 'fixed',
+  top: 0,
+  left: 0,
+  right: 0,
+  bottom: 0,
+  background: 'rgba(0,0,0,0.5)',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  zIndex: 1000
+},
+passageContent: {
+  background: 'white',
+  padding: '30px',
+  borderRadius: '15px',
+  maxWidth: '700px',
+  maxHeight: '80vh',
+  overflow: 'auto',
+  margin: '20px',
+  position: 'relative'
+},
+passageButton: {
+  background: 'linear-gradient(45deg, #2196F3, #1976D2)',
+  color: 'white',
+  border: 'none',
+  padding: '8px 16px',
+  borderRadius: '15px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 'bold',
+  margin: '2px 5px',
+  transition: 'all 0.3s ease'
+},
+audioPlayer: {
+  background: '#fff0f5',
+  padding: '15px',
+  borderRadius: '10px',
+  border: '2px solid #e91e63',
+  marginTop: '20px'
+},
+
+audioButton: {
+  background: 'linear-gradient(45deg, #e91e63, #c2185b)',
+  color: 'white',
+  border: 'none',
+  padding: '8px 16px',
+  borderRadius: '15px',
+  cursor: 'pointer',
+  fontSize: '12px',
+  fontWeight: 'bold',
+  margin: '2px 5px',
+  transition: 'all 0.3s ease'
+}
+
+
   };
 
   // Loading and Error Display Component
@@ -1138,13 +1374,42 @@ waitingCard: {
     <div style={styles.container}>
       <div style={styles.card}>
         <LoadingError />
-        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
-          <h1 style={{ fontSize: '3rem', color: '#333', marginBottom: '10px' }}>🎓 Quiz Portal</h1>
-          <p style={{ fontSize: '1.2rem', color: '#666' }}>
-            {showRegistration ? 'Create your account' : 'Login to continue'}
-          </p>
-        </div>
-        
+       <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+  <img 
+    src="/logo.jpeg" 
+    alt="TCE Logo" 
+    style={{ maxWidth: '120px', height: 'auto', marginBottom: '10px' }} 
+  />
+   
+  <h1 style={{ 
+    fontSize: '2rem', 
+    color: '#800000', /* Dark red like TCE site */
+    fontWeight: 'bold', 
+    margin: '10px 0' 
+  }}>
+    Thiagarajar College of Engineering
+  </h1>
+
+  <h2 style={{ 
+    fontSize: '1.5rem', 
+    color: '#333', 
+    marginBottom: '10px' 
+  }}>
+    Department of English
+  </h2>
+
+  <h3 style={{ 
+    fontSize: '1.2rem', 
+    color: '#555', 
+    marginBottom: '20px' 
+  }}>
+    First Year Diagnostic Test - 2025
+  </h3>
+
+  
+</div>
+
+
         {!showRegistration ? (
           // LOGIN FORM
           <div style={{ maxWidth: '400px', margin: '0 auto' }}>
@@ -1255,14 +1520,6 @@ waitingCard: {
             </div>
           </div>
         )}
-        
-        <div style={{ marginTop: '30px', padding: '20px', background: '#f0f8ff', borderRadius: '10px' }}>
-          <h4 style={{ margin: '0 0 10px 0', color: '#667eea' }}>Access Information:</h4>
-          <p style={{ margin: '0', color: '#666', fontSize: '14px' }}>
-            • Admin users: Can create and manage quizzes<br/>
-            • Student users: Can take quizzes and view results
-          </p>
-        </div>
       </div>
     </div>
   );
@@ -1435,6 +1692,21 @@ if (activeAdminSection === 'create') {
             >
               📊 CSV Upload
             </button>
+            <button
+    style={{
+      ...styles.button,
+      background: entryMethod === 'comprehension' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
+      color: entryMethod === 'comprehension' ? 'white' : '#666',
+      border: 'none',
+      borderRadius: '20px',
+      margin: '0 5px',
+      padding: '10px 20px'
+    }}
+    onClick={() => setEntryMethod('comprehension')}
+    disabled={loading}
+  >
+    📖 Comprehension
+  </button>
           </div>
         </div>
         
@@ -1510,6 +1782,79 @@ if (activeAdminSection === 'create') {
             </div>
           </div>
         )}
+
+        <button
+  style={{
+    ...styles.button,
+    background: entryMethod === 'audio' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
+    color: entryMethod === 'audio' ? 'white' : '#666',
+    border: 'none',
+    borderRadius: '20px',
+    margin: '0 5px',
+    padding: '10px 20px'
+  }}
+  onClick={() => setEntryMethod('audio')}
+  disabled={loading}
+>
+  🎵 Audio 
+  </button>
+        {/* Audio Upload Section */}
+{entryMethod === 'audio' && (
+  <div style={{ marginBottom: '30px', padding: '25px', background: '#fff0f5', borderRadius: '15px', border: '2px dashed #e91e63' }}>
+    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+      <div style={{ fontSize: '3rem', marginBottom: '15px' }}>🎵</div>
+      <h3 style={{ color: '#e91e63', marginBottom: '15px' }}>Add Audio File</h3>
+    </div>
+    
+    <input
+      type="file"
+      accept="audio/*"
+      onChange={handleAudioFileSelect}
+      style={{
+        ...styles.input,
+        padding: '15px',
+        border: '2px dashed #e91e63',
+        background: '#fff',
+        cursor: 'pointer'
+      }}
+      disabled={loading}
+    />
+    
+    {audioUrl && (
+      <div style={{ marginTop: '20px', textAlign: 'center' }}>
+        <audio controls style={{ width: '100%', maxWidth: '400px' }}>
+          <source src={audioUrl} type="audio/mpeg" />
+          Your browser does not support the audio element.
+        </audio>
+        
+        <div style={{ marginTop: '15px' }}>
+          <button
+            style={{
+              ...styles.button,
+              background: 'linear-gradient(45deg, #e91e63, #c2185b)',
+              marginRight: '15px'
+            }}
+            onClick={handleAddAudio}
+            disabled={loading}
+          >
+            {loading ? 'Uploading...' : '🎵 Upload Audio'}
+          </button>
+          <button
+            style={{...styles.button, background: 'linear-gradient(45deg, #f44336, #da190b)'}}
+            onClick={() => {
+              setAudioFile(null);
+              setAudioUrl('');
+              document.querySelector('input[type="file"][accept="audio/*"]').value = '';
+            }}
+            disabled={loading}
+          >
+            🗑️ Clear
+          </button>
+        </div>
+      </div>
+    )}
+  </div>
+)}
         
         {/* CSV Upload Section */}
         {entryMethod === 'csv' && (
@@ -1628,6 +1973,53 @@ if (activeAdminSection === 'create') {
             )}
           </div>
         )}
+
+        {/* Comprehension Passage Section */}
+{entryMethod === 'comprehension' && (
+  <div style={{ marginBottom: '30px', padding: '25px', background: '#f0fff0', borderRadius: '15px', border: '2px dashed #4CAF50' }}>
+    <div style={{ textAlign: 'center', marginBottom: '20px' }}>
+      <div style={{ fontSize: '3rem', marginBottom: '15px' }}>📖</div>
+      <h3 style={{ color: '#4CAF50', marginBottom: '15px' }}>Add Reference Passage</h3>
+    </div>
+    
+    <input
+      type="text"
+      value={passageTitle}
+      onChange={(e) => setPassageTitle(e.target.value)}
+      placeholder="Enter passage title (e.g., 'Passage 1', 'Reading Comprehension')"
+      style={styles.input}
+      disabled={loading}
+    />
+    
+    <textarea
+      value={passageText}
+      onChange={(e) => setPassageText(e.target.value)}
+      placeholder="Enter the complete passage text here..."
+      style={{
+        ...styles.input,
+        minHeight: '200px',
+        resize: 'vertical',
+        fontFamily: 'Arial, sans-serif',
+        lineHeight: '1.5'
+      }}
+      disabled={loading}
+    />
+    
+    <div style={{ textAlign: 'center', marginTop: '25px' }}>
+      <button 
+        style={{
+          ...styles.button,
+          background: 'linear-gradient(45deg, #4CAF50, #45a049)',
+          marginRight: '15px'
+        }} 
+        onClick={handleAddPassage}
+        disabled={loading || !passageTitle.trim() || !passageText.trim()}
+      >
+        {loading ? 'Adding...' : `📝 Add Passage`}
+      </button>
+    </div>
+  </div>
+)}
         
         {/* Quiz Control Buttons */}
         <div style={{ display: 'flex', justifyContent: 'center', gap: '10px', flexWrap: 'wrap', marginBottom: '30px' }}>
@@ -2044,13 +2436,11 @@ if (activeAdminSection === 'violations') {
   if (currentView === 'student') {
     // UPDATED: Warning Banner with different messages based on tab switch count
     const warningBanner = showWarning && (
-      <div style={styles.warningBanner}>
-        {tabSwitchCount === 1 
-          ? "⚠️ WARNING: Do not switch tabs! Next time your quiz will be auto-submitted!"
-          : "⚠️ QUIZ AUTO-SUBMITTED: You switched tabs multiple times!"
-        }
-      </div>
-    );
+  <div style={styles.warningBanner}>
+    {warningMessage}
+  </div>
+);
+
 
     // Code Entry View
     if (studentView === 'codeEntry') {
@@ -2123,9 +2513,15 @@ if (activeAdminSection === 'violations') {
               
               <input
                 type="text"
-                placeholder="Registration Number *"
+                placeholder="Roll number *"
                 value={studentInfo.regNo}
-                onChange={(e) => setStudentInfo({...studentInfo, regNo: e.target.value})}
+                onChange={(e) => {
+    const input = e.target.value;
+    // Allow only digits 
+    if (/^\d*$/.test(input)) {
+      setStudentInfo({ ...studentInfo, regNo: input });
+    }
+  }}
                 style={styles.input}
                 disabled={loading}
               />
@@ -2137,13 +2533,19 @@ if (activeAdminSection === 'violations') {
                 disabled={loading}
               >
                 <option value="">Select Department *</option>
-                <option value="Computer Science">Computer Science</option>
-                <option value="Information Technology">Information Technology</option>
-                <option value="Electronics">Electronics</option>
-                <option value="Mechanical">Mechanical</option>
-                <option value="Electrical">Electrical</option>
-                <option value="Civil">Civil</option>
-                <option value="Other">Other</option>
+                <option value="CSE AIML">CSE-Artificial Intelligence and Machine Learning</option>
+  <option value="Civil">Civil Engineering</option>
+  <option value="CSE">Computer Science Engineering</option>
+  <option value="CSBS">Computer Science and Business Systems</option>
+    <option value="Data Science">Data Science</option>
+  <option value="ECE">Electronics and Communication Engineering</option>
+  <option value="EEE">Electrical and Electronics Engineering</option>
+  <option value="IT">Information Technology</option>
+  <option value="Mechatronics">Mechatronics</option>
+  <option value="Mechanical">Mechanical Engineering</option>
+    <option value="Tseda">TSEDA(Architecture, Design, Planning)</option>
+
+  
               </select>
               
               <div style={{ textAlign: 'center', marginTop: '30px' }}>
@@ -2155,13 +2557,25 @@ if (activeAdminSection === 'violations') {
               <div style={{ marginTop: '20px', padding: '15px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffeaa7' }}>
                 <strong style={{ color: '#856404' }}>⚠️ Important Instructions:</strong>
                 <ul style={{ margin: '10px 0', paddingLeft: '20px', color: '#856404' }}>
-                  <li>Do not refresh the page or switch tabs during the quiz</li>
-                  <li>First tab switch will show a warning</li>
-                  <li>Second tab switch will auto-submit your quiz</li>
-                  <li>You have 30 minutes to complete the quiz</li>
-                  <li>All fields are mandatory</li>
+                  <li>Do not refresh, minimize, resize, or switch tabs during the quiz.</li>
+    <li>Any attempt to switch tabs, copy content, or navigate away will result in immediate termination and auto-submission of the quiz.</li>
+    <li>You are allotted 90 minutes to complete the quiz.</li>
+    <li>All fields must be filled before starting the quiz.</li>
                 </ul>
               </div>
+
+{currentQuiz && currentQuiz.hasAudio && (
+  <div style={{ marginTop: '15px', padding: '15px', background: '#e8f5e8', borderRadius: '8px', border: '1px solid #c3e6cb' }}>
+    <strong style={{ color: '#155724' }}>🎵 Audio Quiz Information:</strong>
+    <ul style={{ margin: '10px 0', paddingLeft: '20px', color: '#155724' }}>
+      <li>This quiz contains audio reference material</li>
+      <li>Make sure your volume is at a comfortable level</li>
+      <li>You can play, pause, and restart the audio anytime</li>
+      <li>Audio will continue playing as you navigate between questions</li>
+    </ul>
+  </div>
+)}
+
             </div>
           </div>
         </div>
@@ -2292,154 +2706,265 @@ if (activeAdminSection === 'violations') {
               </p>
             </div>
           </div>
+
+{/* Reference Passages Navigation */}
+{currentQuiz.passages && currentQuiz.passages.length > 0 && (
+  <div style={{ marginTop: '20px', textAlign: 'center' }}>
+    <h4 style={{ color: '#2196F3' }}>📚 Reference Passages:</h4>
+    <div style={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: '10px', marginTop: '10px' }}>
+      {currentQuiz.passages.map((passage, index) => (
+        <button
+          key={index}
+          style={styles.passageButton}
+          onClick={() => {
+            setSelectedPassage(passage);
+            setShowPassageModal(true);
+          }}
+          disabled={loading}
+        >
+          {passage.title}
+        </button>
+      ))}
+    </div>
+  </div>
+)}
+{/*REPLACE the entire audio player section in Quiz Taking View (around line 1060-1080)*/}
+{/* Find this section and replace it completely:*/}
+
+{/* Audio Player - FIXED VERSION */}
+{/* Audio Player - COMPLETELY FIXED VERSION */}
+{currentQuiz && currentQuiz.hasAudio && (
+  <div style={{ 
+    marginTop: '20px', 
+    padding: '20px', 
+    background: '#fff0f5', 
+    borderRadius: '15px',
+    border: '2px solid #e91e63',
+    boxShadow: '0 4px 8px rgba(233, 30, 99, 0.1)'
+  }}>
+    <h4 style={{ 
+      color: '#e91e63', 
+      textAlign: 'center', 
+      marginBottom: '20px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      gap: '10px'
+    }}>
+      🎵 Audio Reference
+      {isAudioPlaying && <span style={{ fontSize: '12px', color: '#4CAF50' }}>● PLAYING</span>}
+    </h4>
+    
+    <div style={{ textAlign: 'center' }}>
+      <audio 
+        ref={audioRef => {
+          if (audioRef && !audioRef.hasAttribute('data-initialized')) {
+            audioRef.setAttribute('data-initialized', 'true');
+            audioRef.preload = 'auto';
+            audioRef.crossOrigin = 'anonymous';
+            
+            // Add event listeners
+            const handlePlay = () => setIsAudioPlaying(true);
+            const handlePause = () => setIsAudioPlaying(false);
+            const handleEnded = () => setIsAudioPlaying(false);
+            const handleError = (e) => {
+              console.error('Audio error:', e.target.error);
+            };
+            const handleCanPlay = () => {
+              console.log('Audio can play');
+            };
+            
+            audioRef.addEventListener('play', handlePlay);
+            audioRef.addEventListener('pause', handlePause);
+            audioRef.addEventListener('ended', handleEnded);
+            audioRef.addEventListener('error', handleError);
+            audioRef.addEventListener('canplay', handleCanPlay);
+          }
+        }}
+        controls 
+        style={{ 
+          width: '100%', 
+          maxWidth: '500px',
+          height: '40px',
+          outline: 'none'
+        }}
+      >
+        <source src={`${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio?cacheBust=${Date.now()}`} type="audio/mpeg" />
+        <source src={`${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio?cacheBust=${Date.now()}`} type="audio/wav" />
+        <source src={`${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio?cacheBust=${Date.now()}`} type="audio/ogg" />
+        Your browser does not support the audio element.
+      </audio>
+      
+      <div style={{ marginTop: '15px', display: 'flex', justifyContent: 'center', gap: '10px' }}>
+        <button
+          style={{
+            ...styles.audioButton,
+            background: isAudioPlaying ? 'linear-gradient(45deg, #f44336, #da190b)' : 'linear-gradient(45deg, #4CAF50, #45a049)'
+          }}
+          onClick={() => {
+            const audio = document.querySelector('audio');
+            if (audio) {
+              if (audio.paused) {
+                const playPromise = audio.play();
+                if (playPromise !== undefined) {
+                  playPromise.then(() => {
+                    console.log('Audio started playing');
+                  }).catch(error => {
+                    console.error('Play failed:', error);
+                    // Fallback: reload the audio source
+                    audio.load();
+                    setTimeout(() => {
+                      audio.play().catch(e => console.error('Retry play failed:', e));
+                    }, 100);
+                  });
+                }
+              } else {
+                audio.pause();
+              }
+            }
+          }}
+        >
+          {isAudioPlaying ? '⏸️ Pause' : '▶️ Play'}
+        </button>
+        
+        <button
+          style={styles.audioButton}
+          onClick={() => {
+            const audio = document.querySelector('audio');
+            if (audio) {
+              audio.currentTime = 0;
+              audio.load(); // Reload to ensure fresh start
+              if (!audio.paused) {
+                setTimeout(() => {
+                  audio.play().catch(e => console.error('Restart play error:', e));
+                }, 100);
+              }
+            }
+          }}
+        >
+          🔄 Restart
+        </button>
+
+        <button
+          style={styles.audioButton}
+          onClick={() => {
+            const audio = document.querySelector('audio');
+            if (audio) {
+              // Force reload the audio
+              const originalSrc = audio.src;
+              audio.src = '';
+              audio.load();
+              audio.src = `${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio?reload=${Date.now()}`;
+              audio.load();
+              
+              setTimeout(() => {
+                if (audio.readyState >= 2) {
+                  alert('Audio reloaded successfully! Try playing now.');
+                } else {
+                  alert('Audio is loading... Please wait a moment and try again.');
+                }
+              }, 500);
+            }
+          }}
+        >
+          🔄 Reload Audio
+        </button>
+      </div>
+      
+      <p style={{ fontSize: '12px', color: '#666', marginTop: '15px', fontStyle: 'italic' }}>
+        🎧 You can listen to this audio reference while answering questions.<br/>
+        The audio will continue playing as you navigate between questions.<br/>
+        💡 <strong>Tip:</strong> If audio doesn't play, click "Reload Audio" and try again.
+      </p>
+    </div>
+  </div>
+)}
+
+{/* Passage Modal */}
+{showPassageModal && selectedPassage && (
+  <div style={styles.passageModal}>
+    <div style={styles.passageContent}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+        <h3 style={{ color: '#2196F3', margin: 0 }}>📖 {selectedPassage.title}</h3>
+        <button
+          style={{
+            background: '#f44336',
+            color: 'white',
+            border: 'none',
+            borderRadius: '50%',
+            width: '30px',
+            height: '30px',
+            cursor: 'pointer',
+            fontSize: '16px'
+          }}
+          onClick={() => {
+            setShowPassageModal(false);
+            setSelectedPassage(null);
+          }}
+        >
+          ×
+        </button>
+      </div>
+      
+      <div style={{
+        padding: '20px',
+        background: '#f9f9f9',
+        borderRadius: '10px',
+        lineHeight: '1.6',
+        fontSize: '16px',
+        color: '#333',
+        whiteSpace: 'pre-wrap'
+      }}>
+        {selectedPassage.content}
+      </div>
+      
+      <div style={{ textAlign: 'center', marginTop: '20px' }}>
+        <button
+          style={styles.button}
+          onClick={() => {
+            setShowPassageModal(false);
+            setSelectedPassage(null);
+          }}
+        >
+          Close Passage
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
         </div>
       );
     }
 
+
+    
     // Results View
     if (studentView === 'result') {
-      const results = calculateStudentResults();
-      
-      return (
-        <div style={styles.container}>
-          <div style={styles.card}>
-            <LoadingError />
-            <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-              <h1 style={{ color: '#4CAF50', marginBottom: '10px' }}>🎉 Quiz Completed!</h1>
-              <h2>Results Summary</h2>
-            </div>
-            
-            {/* Score Circle */}
-            <div style={styles.scoreCircle(results.scorePercentage)}>
-              <div style={{ textAlign: 'center' }}>
-                <div style={{ fontSize: '32px', fontWeight: 'bold' }}>{results.scorePercentage}%</div>
-                <div style={{ fontSize: '16px', fontWeight: 'normal' }}>Grade: {results.grade}</div>
-              </div>
-            </div>
-            
-            {/* Detailed Results */}
-            <div style={styles.resultCard}>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '20px', textAlign: 'left' }}>
-                <div>
-                  <strong>Student Name:</strong><br />
-                  {studentInfo.name}
-                </div>
-                <div>
-                  <strong>Registration No:</strong><br />
-                  {studentInfo.regNo}
-                </div>
-                <div>
-                  <strong>Department:</strong><br />
-                  {studentInfo.department}
-                </div>
-                <div>
-                  <strong>Quiz Name:</strong><br />
-                  {currentQuiz.name}
-                </div>
-                <div>
-                  <strong>Total Questions:</strong><br />
-                  {currentQuiz.questions.length}
-                </div>
-                <div>
-                  <strong>Correct Answers:</strong><br />
-                  <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>{results.correctAnswers}</span>
-                </div>
-                <div>
-                  <strong>Wrong Answers:</strong><br />
-                  <span style={{ color: '#f44336', fontWeight: 'bold' }}>{results.wrongAnswers}</span>
-                </div>
-                <div>
-                  <strong>Final Score:</strong><br />
-                  <span style={{ color: '#667eea', fontWeight: 'bold' }}>{results.scorePercentage}%</span>
-                </div>
-              </div>
-            </div>
-            
-            {/* Answer Review */}
-            <div style={{ marginTop: '30px' }}>
-              <h3 style={{ textAlign: 'center', marginBottom: '20px' }}>Answer Review</h3>
-              {currentQuiz.questions.map((question, index) => {
-                const userAnswer = userAnswers[index];
-                const correctAnswer = question.correct;
-                const isCorrect = userAnswer === correctAnswer;
-                
-                return (
-                  <div key={index} style={{
-                    ...styles.questionCard,
-                    borderLeft: `4px solid ${isCorrect ? '#4CAF50' : '#f44336'}`
-                  }}>
-                    <div style={{ display: 'flex', alignItems: 'center', marginBottom: '15px' }}>
-                      <span style={{ 
-                        fontSize: '20px', 
-                        marginRight: '10px',
-                        color: isCorrect ? '#4CAF50' : '#f44336'
-                      }}>
-                        {isCorrect ? '✅' : '❌'}
-                      </span>
-                      <strong>Q{index + 1}:</strong>
-                    </div>
-                    
-                    <p style={{ marginBottom: '15px' }}>{question.question}</p>
-                    
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                      <div>
-                        <strong>Your Answer:</strong><br />
-                        <span style={{ 
-                          color: isCorrect ? '#4CAF50' : '#f44336',
-                          fontWeight: 'bold'
-                        }}>
-                          {userAnswer ? `${userAnswer}) ${question.options[userAnswer.toLowerCase()]}` : 'Not Answered'}
-                        </span>
-                      </div>
-                      <div>
-                        <strong>Correct Answer:</strong><br />
-                        <span style={{ color: '#4CAF50', fontWeight: 'bold' }}>
-                          {correctAnswer}) {question.options[correctAnswer.toLowerCase()]}
-                        </span>
-                      </div>
-                    </div>
-                  </div>
-                );
-              })}
-            </div>
-            
-            {/* Action Buttons */}
-            <div style={{ textAlign: 'center', marginTop: '30px' }}>
-              <button style={styles.button} onClick={restartStudent} disabled={loading}>
-                Take Another Quiz
-              </button>
-              <button 
-                style={{...styles.button, marginLeft: '10px'}} 
-                onClick={() => setCurrentView('home')}
-                disabled={loading}
-              >
-                Go to Home
-              </button>
-            </div>
-            
-            {/* Performance Message */}
-            <div style={{ 
-              marginTop: '20px', 
-              padding: '20px', 
-              borderRadius: '10px',
-              textAlign: 'center',
-              background: results.scorePercentage >= 70 ? '#d4edda' : results.scorePercentage >= 50 ? '#fff3cd' : '#f8d7da',
-              border: `1px solid ${results.scorePercentage >= 70 ? '#c3e6cb' : results.scorePercentage >= 50 ? '#ffeaa7' : '#f5c6cb'}`,
-              color: results.scorePercentage >= 70 ? '#155724' : results.scorePercentage >= 50 ? '#856404' : '#721c24'
-            }}>
-              <strong>
-                {results.scorePercentage >= 90 ? '🏆 Excellent! Outstanding performance!' :
-                 results.scorePercentage >= 80 ? '🎉 Great job! You did very well!' :
-                 results.scorePercentage >= 70 ? '👍 Good work! Keep it up!' :
-                 results.scorePercentage >= 60 ? '👌 Fair performance. Room for improvement!' :
-                 results.scorePercentage >= 50 ? '📚 You passed, but consider reviewing the material.' :
-                 '📖 Keep studying and try again. You can do better!'}
-              </strong>
-            </div>
+  const { scorePercentage } = calculateStudentResults(); // Only take percentage
+
+  return (
+    <div style={styles.container}>
+      <div style={styles.card}>
+        <div style={styles.resultCard}>
+          <h2>🎉 Quiz Completed</h2>
+          <div style={styles.scoreCircle(scorePercentage)}>
+            {scorePercentage}%
           </div>
+          <p style={{ fontSize: '1.1rem', color: '#666' }}>
+            Thank you for completing the quiz.
+          </p>
         </div>
-      );
-    }
+
+        <div style={{ textAlign: 'center', marginTop: '30px' }}>
+          <button style={styles.button} onClick={restartStudent}>
+            Back to Home
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
     // Waiting for Admin View - ADD THIS SECTION
 if (studentView === 'waitingForAdmin') {
   return (

@@ -168,6 +168,29 @@ input:focus, select:focus {
     transform: translateY(-2px);
     box-shadow: 0 10px 25px rgba(102, 126, 234, 0.4);
 }
+/* Make full page background */
+body, html, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background-image: url('/img.jpg'); 
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  font-family: 'Segoe UI', sans-serif;
+}
+
+/* Optional: Add styling to content wrapper */
+.app-container {
+  background-color: rgba(255, 255, 255, 0.85);
+  padding: 20px;
+  border-radius: 12px;
+  box-shadow: 0 0 10px rgba(0,0,0,0.2);
+  margin: 20px;
+  min-height: 90vh;
+}
+
+
 
 .btn-secondary {
     background-color: #6b7280;

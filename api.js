@@ -2,18 +2,48 @@ const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcrypt');
-
+const multer = require('multer');
+const path = require('path');
+const fs = require('fs');
 const app = express();
 const PORT = 3001;
 
 // Configuration
 const CONFIG = {
-  MONGODB_URI: 'mongodb+srv://roshirose2405:N6t5Plu85Rnuffcf@cluster.tkmxtgf.mongodb.net/quiz_app?retryWrites=true&w=majority',
+  MONGODB_URI: 'mongodb+srv://sanchana:25@cluster.thgduph.mongodb.net/?retryWrites=true&w=majority&appName=cluster',
   FRONTEND_URL: 'http://localhost:3000',
   ADMIN_CODE: 'admin123',
   NODE_ENV: 'development'
 };
+// Configure multer for audio uploads
+const storage = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadDir = 'uploads/audio';
+    if (!fs.existsSync(uploadDir)) {
+      fs.mkdirSync(uploadDir, { recursive: true });
+    }
+    cb(null, uploadDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, req.params.sessionId + '-' + uniqueSuffix + path.extname(file.originalname));
+  }
+});
 
+const audioUpload = multer({
+  storage: storage,
+  limits: {
+    fileSize: 50 * 1024 * 1024 // 50MB limit
+  },
+  fileFilter: function (req, file, cb) {
+    // Check if file is audio
+    if (file.mimetype.startsWith('audio/')) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only audio files are allowed'), false);
+    }
+  }
+});
 // Middleware
 app.use(cors({
   origin: CONFIG.FRONTEND_URL,
@@ -59,10 +89,43 @@ const quizSessionSchema = new mongoose.Schema({
       enum: ['A', 'B', 'C', 'D']
     }
   }],
-  isActive: {
-    type: Boolean,
-    default: false
-  },
+
+   passages: [{
+    id: String,
+    title: String,
+    content: String,
+    createdAt: {
+      type: Date,
+      default: Date.now
+    }
+  }],
+  passages: [{
+  id: String,
+  title: String,
+  content: String,
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
+}],
+
+// ADD THIS NEW AUDIO FIELD:
+audioFiles: [{
+  filename: String,
+  originalName: String,
+  path: String,
+  size: Number,
+  uploadedAt: {
+    type: Date,
+    default: Date.now
+  }
+}],
+
+isActive: {
+  type: Boolean,
+  default: false
+},
+
   createdAt: {
     type: Date,
     default: Date.now
@@ -930,6 +993,130 @@ app.delete('/api/quiz-sessions/:sessionId', async (req, res) => {
     });
   }
 });
+// Upload audio file to a quiz session
+app.post('/api/quiz-sessions/:sessionId/audio', audioUpload.single('audio'), async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    if (!req.file) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'No audio file provided' 
+      });
+    }
+    
+    // Find the quiz session
+    const session = await QuizSession.findOne({ sessionId: sessionId.toUpperCase() });
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Create audio file object
+    const audioFile = {
+      filename: req.file.filename,
+      originalName: req.file.originalname,
+      path: req.file.path,
+      size: req.file.size,
+      uploadedAt: new Date()
+    };
+    
+    // Initialize audioFiles array if it doesn't exist
+    if (!session.audioFiles) {
+      session.audioFiles = [];
+    }
+    
+    // Add audio file to session
+    session.audioFiles.push(audioFile);
+    
+    // Save the session
+    await session.save();
+    
+    res.json({ 
+      success: true, 
+      message: 'Audio file uploaded successfully',
+      audioFile: audioFile
+    });
+    
+  } catch (error) {
+    console.error('Error uploading audio:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error',
+      error: error.message 
+    });
+  }
+});
+
+
+
+// Serve audio files
+app.get('/api/audio/:filename', (req, res) => {
+  try {
+    const { filename } = req.params;
+    const filePath = path.join(__dirname, 'uploads', 'audio', filename);
+    
+    if (fs.existsSync(filePath)) {
+      res.sendFile(filePath);
+    } else {
+      res.status(404).json({ 
+        success: false, 
+        message: 'Audio file not found' 
+      });
+    }
+  } catch (error) {
+    console.error('Error serving audio file:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+});
+
+// Delete audio file from a quiz session
+app.delete('/api/quiz-sessions/:sessionId/audio/:filename', async (req, res) => {
+  try {
+    const { sessionId, filename } = req.params;
+    
+    const session = await QuizSession.findOne({ sessionId: sessionId.toUpperCase() });
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Remove audio file from array and delete physical file
+    if (session.audioFiles) {
+      const audioFile = session.audioFiles.find(af => af.filename === filename);
+      if (audioFile) {
+        // Delete physical file
+        const filePath = path.join(__dirname, 'uploads', 'audio', filename);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+        
+        // Remove from database
+        session.audioFiles = session.audioFiles.filter(af => af.filename !== filename);
+        await session.save();
+      }
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Audio file deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting audio file:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+});
 
 // Get quiz statistics
 app.get('/api/stats', async (req, res) => {
@@ -1226,6 +1413,124 @@ app.post('/api/quiz-violations/check-pending', async (req, res) => {
     });
   }
 });
+
+// Add passage to a quiz session
+app.post('/api/quiz-sessions/:sessionId/passages', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    const { title, content } = req.body;
+    
+    // Validation
+    if (!title || !content) {
+      return res.status(400).json({ 
+        success: false, 
+        message: 'Title and content are required' 
+      });
+    }
+    
+    // Find the quiz session
+    const session = await QuizSession.findOne({ sessionId });
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Create passage object
+    const passage = {
+      id: Date.now().toString(), // Simple ID generation
+      title: title.trim(),
+      content: content.trim(),
+      createdAt: new Date()
+    };
+    
+    // Initialize passages array if it doesn't exist
+    if (!session.passages) {
+      session.passages = [];
+    }
+    
+    // Add passage to session
+    session.passages.push(passage);
+    
+    // Save the session
+    await session.save();
+    
+    res.json({ 
+      success: true, 
+      message: 'Passage added successfully',
+      passage: passage
+    });
+    
+  } catch (error) {
+    console.error('Error adding passage:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+});
+
+// Get all passages for a quiz session
+app.get('/api/quiz-sessions/:sessionId/passages', async (req, res) => {
+  try {
+    const { sessionId } = req.params;
+    
+    const session = await QuizSession.findOne({ sessionId });
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    res.json({ 
+      success: true, 
+      passages: session.passages || [] 
+    });
+    
+  } catch (error) {
+    console.error('Error fetching passages:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+});
+
+// Delete a passage from a quiz session
+app.delete('/api/quiz-sessions/:sessionId/passages/:passageId', async (req, res) => {
+  try {
+    const { sessionId, passageId } = req.params;
+    
+    const session = await QuizSession.findOne({ sessionId });
+    if (!session) {
+      return res.status(404).json({ 
+        success: false, 
+        message: 'Quiz session not found' 
+      });
+    }
+    
+    // Remove passage from array
+    if (session.passages) {
+      session.passages = session.passages.filter(p => p.id !== passageId);
+      await session.save();
+    }
+    
+    res.json({ 
+      success: true, 
+      message: 'Passage deleted successfully' 
+    });
+    
+  } catch (error) {
+    console.error('Error deleting passage:', error);
+    res.status(500).json({ 
+      success: false, 
+      message: 'Internal server error' 
+    });
+  }
+});
+
 // Error handling middleware
 app.use((err, req, res, next) => {
   console.error('Unhandled error:', err);
@@ -1234,6 +1539,89 @@ app.use((err, req, res, next) => {
     error: CONFIG.NODE_ENV === 'development' ? err.message : 'Something went wrong'
   });
 });
+         // ✅ Serve audio file for a quiz session
+         app.get('/api/quiz-sessions/:sessionId/audio', async (req, res) => {
+           try {
+             const sessionId = req.params.sessionId.toUpperCase();
+             console.log(`Audio request for session: ${sessionId}`);
+             
+             const session = await QuizSession.findOne({ sessionId });
+
+             if (!session || !session.audioFiles || session.audioFiles.length === 0) {
+               console.log(`No audio files found for session: ${sessionId}`);
+               return res.status(404).json({ message: 'No audio file found for this session' });
+             }
+
+             const audioFile = session.audioFiles[0];
+             const audioPath = path.resolve(audioFile.path);
+             console.log(`Audio file path: ${audioPath}`);
+
+             // Check if file exists
+             if (!fs.existsSync(audioPath)) {
+               console.error(`Audio file not found at path: ${audioPath}`);
+               return res.status(404).json({ message: 'Audio file not found on server' });
+             }
+
+             // Get file stats for debugging
+             const stats = fs.statSync(audioPath);
+             console.log(`Audio file size: ${stats.size} bytes`);
+
+             // Set appropriate headers
+             res.setHeader('Content-Type', 'audio/mpeg');
+             res.setHeader('Accept-Ranges', 'bytes');
+             res.setHeader('Cache-Control', 'public, max-age=3600');
+             res.setHeader('Content-Length', stats.size);
+             res.setHeader('Access-Control-Allow-Origin', '*');
+             res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+             res.setHeader('Access-Control-Allow-Headers', 'Range');
+
+             console.log(`Sending audio file for session: ${sessionId}`);
+             // Send the file
+             res.sendFile(audioPath, (err) => {
+               if (err) {
+                 console.error('Error sending audio file:', err);
+                 if (!res.headersSent) {
+                   res.status(500).json({ message: 'Error serving audio file' });
+                 }
+               } else {
+                 console.log(`Successfully sent audio file for session: ${sessionId}`);
+               }
+             });
+           } catch (error) {
+             console.error('Audio fetch error:', error);
+             res.status(500).json({ message: 'Error retrieving audio file' });
+           }
+         });
+
+         // ✅ Check if audio exists for a quiz session (HEAD request)
+         app.head('/api/quiz-sessions/:sessionId/audio', async (req, res) => {
+           try {
+             const sessionId = req.params.sessionId.toUpperCase();
+             console.log(`Audio HEAD request for session: ${sessionId}`);
+             
+             const session = await QuizSession.findOne({ sessionId });
+
+             if (!session || !session.audioFiles || session.audioFiles.length === 0) {
+               console.log(`No audio files found for session: ${sessionId} (HEAD request)`);
+               return res.status(404).end();
+             }
+
+             const audioPath = path.resolve(session.audioFiles[0].path);
+             console.log(`Audio file path for HEAD request: ${audioPath}`);
+             
+             if (!fs.existsSync(audioPath)) {
+               console.log(`Audio file not found at path: ${audioPath} (HEAD request)`);
+               return res.status(404).end();
+             }
+
+             console.log(`Audio file exists for session: ${sessionId} (HEAD request)`);
+             res.status(200).end();
+           } catch (error) {
+             console.error('Audio HEAD request error:', error);
+             res.status(500).end();
+           }
+         });
+
 // 404 handler
 app.use((req, res) => {
   res.status(404).json({ 
@@ -1241,6 +1629,31 @@ app.use((req, res) => {
     path: req.originalUrl 
   });
 });
+app.get('/api/quiz-sessions/:sessionId/audio', async (req, res) => {
+  const sessionId = req.params.sessionId.toUpperCase();
+
+  try {
+    const session = await QuizSession.findOne({ sessionId });
+
+    if (!session || !session.audioFiles || session.audioFiles.length === 0) {
+      return res.status(404).json({ message: 'Audio file not found' });
+    }
+
+    const audioPath = session.audioFiles[0].path;
+
+    if (!fs.existsSync(audioPath)) {
+      return res.status(404).json({ message: 'Audio file missing from server' });
+    }
+
+    res.setHeader('Content-Type', 'audio/mpeg');
+    fs.createReadStream(audioPath).pipe(res);
+  } catch (error) {
+    console.error('Error serving audio:', error);
+    res.status(500).json({ message: 'Internal server error' });
+  }
+});
+
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Quiz API Server running on port ${PORT}`);
@@ -1250,4 +1663,6 @@ app.listen(PORT, () => {
   console.log(`🔗 Frontend URL: ${CONFIG.FRONTEND_URL}`);
   console.log(`💾 MongoDB URI: ${CONFIG.MONGODB_URI}`);
 });
+
+
 module.exports = app;
