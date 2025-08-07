@@ -10,7 +10,7 @@ const PORT = 3001;
 
 // Configuration
 const CONFIG = {
-  MONGODB_URI: 'mongodb+srv://sanchana:25@cluster.thgduph.mongodb.net/?retryWrites=true&w=majority&appName=cluster',
+  MONGODB_URI: 'replace this with mongodb url',
   FRONTEND_URL: 'http://localhost:3000',
   ADMIN_CODE: 'admin123',
   NODE_ENV: 'development'
@@ -1720,6 +1720,7 @@ app.listen(PORT, () => {
   console.log(`🔗 Frontend URL: ${CONFIG.FRONTEND_URL}`);
   console.log(`💾 MongoDB URI: ${CONFIG.MONGODB_URI}`);
 });
+
 
 
 module.exports = app;
