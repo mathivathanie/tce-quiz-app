@@ -10,7 +10,7 @@ const PORT = 3001;
 
 // Configuration
 const CONFIG = {
-  MONGODB_URI: 'replace this with mongodb url',
+  MONGODB_URI: 'replace with mongodb atlas string',
   FRONTEND_URL: 'http://localhost:3000',
   ADMIN_CODE: 'admin123',
   NODE_ENV: 'development'
@@ -1297,7 +1297,7 @@ app.get('/api/quiz-violations/:sessionId', async (req, res) => {
   }
 });
 
-// Generate resume token for violation
+// Approve resume for a violation (no token)
 app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
   try {
     const violationId = req.params.violationId;
@@ -1315,24 +1315,26 @@ app.post('/api/quiz-violations/:violationId/resume', async (req, res) => {
         message: 'Violation already resolved'
       });
     }
-    const resumeToken = generateSecureToken();
-    violation.resumeToken = resumeToken;
+
+    // Mark as approved to resume; student will auto-resume via polling
     violation.adminAction = 'resume_approved';
+    violation.resumeToken = null;
     await violation.save();
+
     res.json({
-      message: 'Resume token generated successfully',
-      resumeToken: resumeToken,
-      violation: violation
+      success: true,
+      message: 'Resume approved. Student can now continue without a token.',
+      violation
     });
   } catch (error) {
-    console.error('Generate resume token error:', error);
+    console.error('Approve resume error:', error);
     res.status(500).json({
-      message: 'Error generating resume token',
+      message: 'Error approving resume',
       error: error.message
     });
   }
 });
-// POST /api/quiz-violations/:violationId/restart
+// POST /api/quiz-violations/:violationId/restart (approve without token)
 app.post('/api/quiz-violations/:violationId/restart', async (req, res) => {
   try {
     const violationId = req.params.violationId;
@@ -1347,20 +1349,19 @@ app.post('/api/quiz-violations/:violationId/restart', async (req, res) => {
         message: 'Violation already resolved'
       });
     }
-    const restartToken = generateSecureToken();
-    violation.restartToken = restartToken;
+
+    violation.restartToken = null;
     violation.adminAction = 'restart_approved';
     await violation.save();
     res.json({
       success: true,
-      message: 'Restart token generated successfully',
-      restartToken: restartToken,
-      violation: violation
+      message: 'Restart approved. Student can now restart without a token.',
+      violation
     });
   } catch (error) {
-    console.error('Generate restart token error:', error);
+    console.error('Approve restart error:', error);
     res.status(500).json({
-      message: 'Error generating restart token',
+      message: 'Error approving restart',
       error: error.message
     });
   }
@@ -1433,6 +1434,69 @@ app.post('/api/quiz-resume', async (req, res) => {
       message: 'Error resuming quiz',
       error: error.message
     });
+  }
+});
+
+// POST /api/quiz-violations/:violationId/continue
+// Student consumes admin approval (resume or restart) without any token
+app.post('/api/quiz-violations/:violationId/continue', async (req, res) => {
+  try {
+    const { violationId } = req.params;
+
+    const violation = await QuizViolation.findById(violationId);
+    if (!violation) {
+      return res.status(404).json({ message: 'Violation not found' });
+    }
+
+    if (violation.isResolved) {
+      return res.status(400).json({ message: 'Violation already resolved' });
+    }
+
+    const session = await QuizSession.findOne({ sessionId: violation.sessionId });
+    if (!session || !session.isActive) {
+      return res.status(400).json({ message: 'Quiz session not active' });
+    }
+
+    if (violation.adminAction !== 'resume_approved' && violation.adminAction !== 'restart_approved') {
+      return res.status(400).json({ message: 'Admin approval not granted yet' });
+    }
+
+    // Mark resolved now that student is continuing
+    violation.isResolved = true;
+    violation.resolvedAt = new Date();
+    await violation.save();
+
+    if (violation.adminAction === 'resume_approved') {
+      return res.json({
+        success: true,
+        actionType: 'resume',
+        quizData: session,
+        studentInfo: {
+          name: violation.studentName,
+          regNo: violation.regNo,
+          department: violation.department
+        },
+        currentQuestion: violation.currentQuestion,
+        userAnswers: violation.userAnswers,
+        timeLeft: violation.timeLeft
+      });
+    }
+
+    if (violation.adminAction === 'restart_approved') {
+      return res.json({
+        success: true,
+        actionType: 'restart',
+        quizData: session,
+        studentInfo: {
+          name: violation.studentName,
+          regNo: violation.regNo,
+          department: violation.department
+        }
+      });
+    }
+  } catch (error) {
+    console.error('Continue after approval error:', error);
+    res.status(500).json({ message: 'Error continuing quiz', error: error.message });
   }
 });
 // POST /api/quiz-violations/check-pending
