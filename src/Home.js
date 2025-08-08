@@ -57,8 +57,7 @@ const [violationSessionCode, setViolationSessionCode] = useState('');
 const [selectedViolation, setSelectedViolation] = useState(null);
 const [showViolationDetails, setShowViolationDetails] = useState(false);
 
-// Student resume states (ADD THESE)
-const [resumeToken, setResumeToken] = useState('');
+// Student resume states (no token)
 const [isResuming, setIsResuming] = useState(false);
 const [suspensionMessage, setSuspensionMessage] = useState('');
 const [violationId, setViolationId] = useState(null);
@@ -755,18 +754,21 @@ const loadQuizViolations = async (sessionId) => {
 };
 
 
-// ENHANCED: Generate resume token for student
-const handleGenerateResumeToken = async (violationId) => {
+// Approve resume for student (no token)
+const handleApproveResume = async (violationId) => {
   try {
     const response = await apiCall(`/api/quiz-violations/${violationId}/resume`, 'POST');
-    alert(`Resume token generated successfully!\nToken: ${response.resumeToken}\n\nShare this token with the student to resume their quiz.`);
-    
+    if (response && response.success) {
+      alert('Resume approved. The student can now continue the quiz.');
+    } else {
+      alert(response?.message || 'Resume approved.');
+    }
     // Refresh violations list
     if (violationSessionCode) {
       await loadQuizViolations(violationSessionCode);
     }
   } catch (error) {
-    alert('Failed to generate resume token: ' + error.message);
+    alert('Failed to approve resume: ' + error.message);
   }
 };
 
@@ -790,11 +792,7 @@ const handleRestartStudentQuiz = async (violation) => {
     });
 
     if (response.success) {
-      alert(
-        `Quiz restart approved for ${violation.studentName}!\n\n` +
-        `Restart Token: ${response.restartToken}\n\n` +
-        `Please share this token with the student.`
-      );
+      alert(`Quiz restart approved for ${violation.studentName}! The student can restart without a token.`);
       
       // Refresh violations list
       if (violationSessionCode) {
@@ -837,6 +835,13 @@ const handleRestartStudentQuiz = async (violation) => {
   // Navigate to next question
   const nextQuestion = () => {
     if (currentQuestion === currentQuiz.questions.length - 1) {
+      const unansweredCount = userAnswers.filter((a) => a === null).length;
+      if (unansweredCount > 0 && timeLeft > 0) {
+        setWarningMessage(`Please answer all questions before submitting. ${unansweredCount} question(s) remaining.`);
+        setShowWarning(true);
+        setTimeout(() => setShowWarning(false), 4000);
+        return;
+      }
       submitQuiz();
     } else {
       setCurrentQuestion(prev => prev + 1);
@@ -854,6 +859,17 @@ const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null
   if (!currentQuiz) return;
   
   try {
+      // Prevent manual submit if unanswered and time remains
+      if (!isAutoSubmit) {
+        const unanswered = userAnswers.filter((a) => a === null).length;
+        if (unanswered > 0 && timeLeft > 0) {
+          setWarningMessage(`You still have ${unanswered} unanswered question(s). Please answer all questions before submitting.`);
+          setShowWarning(true);
+          setTimeout(() => setShowWarning(false), 4000);
+          return;
+        }
+      }
+
     const correctAnswers = userAnswers.reduce((count, answer, index) => {
       return answer === currentQuiz.questions[index].correct ? count + 1 : count;
     }, 0);
@@ -1110,37 +1126,28 @@ setTimeout(() => setShowWarning(false), 4000);
     return { correctAnswers, wrongAnswers, scorePercentage, grade };
   };
 
+// Student: Poll and continue automatically once admin approves
 const handleResumeQuiz = async () => {
-  if (!resumeToken.trim()) {
-    alert('Please enter your resume token!');
+  if (!violationId) {
+    alert('Waiting for admin approval...');
     return;
   }
-
   try {
-    const response = await apiCall('/api/quiz-resume', 'POST', {
-      resumeToken: resumeToken.trim()
-    });
+    const response = await apiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
 
     if (response.success) {
       // Check for audio in resumed quiz
       try {
-        console.log(`Checking audio for resumed session: ${response.quizData.sessionId}`);
         const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, { 
           method: 'HEAD',
-          headers: {
-            'Accept': 'audio/*'
-          }
+          headers: { 'Accept': 'audio/*' }
         });
-        console.log(`Audio check response for resumed session ${response.quizData.sessionId}:`, audioResponse.status, audioResponse.ok);
         response.quizData.hasAudio = audioResponse.ok && audioResponse.status === 200;
-        console.log(`Audio available for resumed session ${response.quizData.sessionId}:`, response.quizData.hasAudio);
       } catch (e) {
-        console.warn('Audio check failed in resume:', e);
         response.quizData.hasAudio = false;
       }
       
       if (response.actionType === 'resume') {
-        // Resume from where they left off
         setCurrentQuiz(response.quizData);
         setStudentInfo(response.studentInfo);
         setCurrentQuestion(response.currentQuestion);
@@ -1149,10 +1156,8 @@ const handleResumeQuiz = async () => {
         setTabSwitchCount(0);
         setIsResuming(true);
         setStudentView('quiz');
-        
-        alert('Quiz resumed successfully! You can continue from where you left off.');
+        alert('Quiz resumed successfully!');
       } else if (response.actionType === 'restart') {
-        // Fresh restart
         setCurrentQuiz(response.quizData);
         setStudentInfo(response.studentInfo);
         setCurrentQuestion(0);
@@ -1162,14 +1167,62 @@ const handleResumeQuiz = async () => {
         setTabSwitchCount(0);
         setIsResuming(true);
         setStudentView('quiz');
-        
-        alert('Quiz restarted successfully! You have a fresh start.');
+        alert('Quiz restarted successfully!');
       }
     }
   } catch (error) {
-    alert('Invalid or expired token. Please contact your instructor.');
+    alert(error?.message || 'Approval not ready yet.');
   }
 };
+
+// Auto-polling to continue as soon as admin approves
+const tryAutoResume = useCallback(async () => {
+  if (!violationId || studentView !== 'waitingForAdmin') return;
+  try {
+    const response = await apiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
+    if (!response?.success) return;
+
+    // Check audio quietly
+    try {
+      const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, { method: 'HEAD', headers: { 'Accept': 'audio/*' } });
+      response.quizData.hasAudio = audioResponse.ok && audioResponse.status === 200;
+    } catch {
+      response.quizData.hasAudio = false;
+    }
+
+    if (response.actionType === 'resume') {
+      setCurrentQuiz(response.quizData);
+      setStudentInfo(response.studentInfo);
+      setCurrentQuestion(response.currentQuestion);
+      setUserAnswers(response.userAnswers);
+      setTimeLeft(response.timeLeft);
+      setTabSwitchCount(0);
+      setIsResuming(true);
+      setStudentView('quiz');
+    } else if (response.actionType === 'restart') {
+      setCurrentQuiz(response.quizData);
+      setStudentInfo(response.studentInfo);
+      setCurrentQuestion(0);
+      setUserAnswers(new Array(response.quizData.questions.length).fill(null));
+      setTimeLeft(response.quizData.timeLimit || 90 * 60);
+      setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
+      setTabSwitchCount(0);
+      setIsResuming(true);
+      setStudentView('quiz');
+    }
+  } catch {
+    // Ignore until approved
+  }
+}, [violationId, studentView, API_BASE_URL]);
+
+useEffect(() => {
+  if (studentView === 'waitingForAdmin' && violationId) {
+    const id = setInterval(() => {
+      tryAutoResume();
+    }, 3000);
+    return () => clearInterval(id);
+  }
+}, [studentView, violationId, tryAutoResume]);
 
 // ENHANCED: Check for pending violations when student tries to join
 const checkPendingResume = async (studentName, regNo, sessionId) => {
@@ -2480,10 +2533,10 @@ if (activeAdminSection === 'violations') {
                           <>
                             <button
                               style={styles.resumeButton}
-                              onClick={() => handleGenerateResumeToken(violation._id)}
+                              onClick={() => handleApproveResume(violation._id)}
                               disabled={loading}
                             >
-                              🔄 Generate Resume Token
+                              🔄 Resume Quiz
                             </button>
                             <button
                               style={{...styles.resumeButton, background: 'linear-gradient(45deg, #4CAF50, #45a049)'}}
@@ -2819,7 +2872,13 @@ if (activeAdminSection === 'violations') {
               <button 
                 style={styles.button}
                 onClick={nextQuestion}
-                disabled={loading}
+                disabled={
+                  loading || (
+                    currentQuestion === currentQuiz.questions.length - 1 &&
+                    userAnswers.some((a) => a === null) &&
+                    timeLeft > 0
+                  )
+                }
               >
                 {currentQuestion === currentQuiz.questions.length - 1 ? 
                   (loading ? 'Submitting...' : 'Submit Quiz') : 
@@ -3158,22 +3217,14 @@ if (studentView === 'waitingForAdmin') {
             {suspensionMessage}
           </p>
           
-          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
-            <h3 style={{ marginBottom: '15px' }}>Resume Quiz</h3>
+          <div style={{ maxWidth: '420px', margin: '0 auto', textAlign: 'center' }}>
+            <h3 style={{ marginBottom: '15px' }}>Waiting for Instructor Approval</h3>
             <p style={{ color: '#666', marginBottom: '15px' }}>
-              Enter the resume token provided by your instructor:
+              Once your instructor approves, click the button below to continue. No token needed.
             </p>
-            <input
-              type="text"
-              placeholder="Enter Resume Token"
-              value={resumeToken}
-              onChange={(e) => setResumeToken(e.target.value.toUpperCase())}
-              style={styles.input}
-              disabled={loading}
-            />
             <div style={{ textAlign: 'center', marginTop: '15px' }}>
               <button style={styles.button} onClick={handleResumeQuiz} disabled={loading}>
-                {loading ? 'Resuming...' : 'Resume Quiz'}
+                {loading ? 'Checking...' : 'Continue Quiz'}
               </button>
             </div>
           </div>
