@@ -1588,7 +1588,7 @@ verticalDivider: {
         <LoadingError />
        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
   <img 
-    src="/logo.jpeg" 
+    src="/logo.png" 
     alt="TCE Logo" 
     style={{ maxWidth: '120px', height: 'auto', marginBottom: '10px' }} 
   />
