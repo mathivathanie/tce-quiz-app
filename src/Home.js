@@ -964,7 +964,7 @@ useEffect(() => {
       timerInterval = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
-            submitQuiz();
+            submitQuiz(true);
             return 0;
           }
           return prev - 1;
