@@ -252,14 +252,22 @@ const handleEmailChange = (email) => {
   };
 
   // Load results for a specific session
-  const loadSessionResults = async (sessionId) => {
-    try {
-      const results = await apiCall(`/api/quiz-results/${sessionId}`);
-      setStudentResults(results);
-    } catch (error) {
-      alert('Failed to load results: ' + error.message);
-    }
-  };
+ const loadSessionResults = async (sessionId) => {
+  try {
+    const results = await apiCall(`/api/quiz-results/${sessionId}`);
+
+    // ✅ Keep only the first result for each regNo
+    const uniqueResults = results.filter(
+      (value, index, self) =>
+        index === self.findIndex((r) => r.regNo === value.regNo)
+    );
+
+    setStudentResults(uniqueResults);
+  } catch (error) {
+    alert('Failed to load results: ' + error.message);
+  }
+};
+
 
   // Add this new login handler:
 const handleUserLogin = async () => {
@@ -854,21 +862,21 @@ const handleRestartStudentQuiz = async (violation) => {
       setCurrentQuestion(prev => prev - 1);
     }
   };
-// ENHANCED: Submit quiz with violation handling
+  
 const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null) => {
   if (!currentQuiz) return;
-  
+
   try {
-      // Prevent manual submit if unanswered and time remains
-      if (!isAutoSubmit) {
-        const unanswered = userAnswers.filter((a) => a === null).length;
-        if (unanswered > 0 && timeLeft > 0) {
-          setWarningMessage(`You still have ${unanswered} unanswered question(s). Please answer all questions before submitting.`);
-          setShowWarning(true);
-          setTimeout(() => setShowWarning(false), 4000);
-          return;
-        }
+    // Prevent manual submit if unanswered and time remains
+    if (!isAutoSubmit) {
+      const unanswered = userAnswers.filter((a) => a === null).length;
+      if (unanswered > 0 && timeLeft > 0) {
+        setWarningMessage(`You still have ${unanswered} unanswered question(s). Please answer all questions before submitting.`);
+        setShowWarning(true);
+        setTimeout(() => setShowWarning(false), 4000);
+        return;
       }
+    }
 
     const correctAnswers = userAnswers.reduce((count, answer, index) => {
       return answer === currentQuiz.questions[index].correct ? count + 1 : count;
@@ -890,15 +898,14 @@ const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null
       };
 
       const response = await apiCall('/api/quiz-violations', 'POST', violationData);
-      
+
       setViolationId(response.violationId);
       setStudentView('waitingForAdmin');
       setSuspensionMessage(
         `Your quiz has been suspended due to ${violationType.replace('_', ' ')}.\n\n` +
         `Please contact your instructor for assistance.`
       );
-    }
-  else {
+    } else {
       // Regular submission
       const resultData = {
         sessionId: currentQuiz.sessionId,
@@ -914,13 +921,33 @@ const submitQuiz = useCallback(async (isAutoSubmit = false, violationType = null
         timeSpent: originalTimeAllotted - timeLeft
       };
 
-      await apiCall('/api/quiz-results', 'POST', resultData);
-      setStudentView('result');
+      try {
+        await apiCall('/api/quiz-results', 'POST', resultData);
+        setStudentView('result');
+      } catch (err) {
+        if (err.message.includes('409')) {
+          // Treat "already submitted" as success
+          console.warn('Quiz already submitted, showing results anyway.');
+          setStudentView('result');
+        } else {
+          throw err; // let other errors bubble up
+        }
+      }
     }
   } catch (error) {
     alert('Failed to submit quiz: ' + error.message);
   }
-}, [userAnswers, currentQuiz, studentInfo, currentQuestion, timeLeft, tabSwitchCount, isResuming, originalTimeAllotted]);
+}, [
+  userAnswers,
+  currentQuiz,
+  studentInfo,
+  currentQuestion,
+  timeLeft,
+  tabSwitchCount,
+  isResuming,
+  originalTimeAllotted
+]);
+
 
   // Restart student session
 const restartStudent = () => {
@@ -964,7 +991,7 @@ useEffect(() => {
       timerInterval = setInterval(() => {
         setTimeLeft((prev) => {
           if (prev <= 1) {
-            submitQuiz();
+            submitQuiz(true);
             return 0;
           }
           return prev - 1;
@@ -1588,7 +1615,7 @@ verticalDivider: {
         <LoadingError />
        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
   <img 
-    src="/logo.png" 
+    src="/tce-logo.png" 
     alt="TCE Logo" 
     style={{ maxWidth: '120px', height: 'auto', marginBottom: '10px' }} 
   />
@@ -2739,17 +2766,16 @@ if (activeAdminSection === 'violations') {
                 disabled={loading}
               >
                 <option value="">Select Department *</option>
-                <option value="CSE AIML">CSE-Artificial Intelligence and Machine Learning</option>
-  <option value="Civil">Civil Engineering</option>
-  <option value="CSE">Computer Science Engineering</option>
-  <option value="CSBS">Computer Science and Business Systems</option>
-    <option value="Data Science">Data Science</option>
-  <option value="ECE">Electronics and Communication Engineering</option>
-  <option value="EEE">Electrical and Electronics Engineering</option>
-  <option value="IT">Information Technology</option>
-  <option value="Mechatronics">Mechatronics</option>
-  <option value="Mechanical">Mechanical Engineering</option>
-    <option value="Tseda">TSEDA(Architecture, Design, Planning)</option>
+<option value="Civil">Civil Engineering</option>
+<option value="Mechanical">Mechanical Engineering</option>
+<option value="EEE">Electrical and Electronics Engineering</option>
+<option value="ECE">Electronics and Communication Engineering</option>
+<option value="CSE AIML">CSE - Artificial Intelligence and Machine Learning</option>
+<option value="IT">Information Technology</option>
+<option value="Mechatronics">Mechatronics</option>
+<option value="AMCS">Applied Mathematics and Computational Sciences</option>
+<option value="CSBS">Computer Science and Business Systems</option>
+
 
   
               </select>
@@ -3180,15 +3206,23 @@ if (activeAdminSection === 'violations') {
   <div style={styles.footerColumn}>
     <div style={styles.footerHeading}>Developed By</div>
     <p style={styles.footerText}>
-      Mathivathani E<br />
-      Roshini M<br />
-      Shanmathi N<br />
-      Harini R<br />
-      Sanchana R
+      Mathivathani E -IT<br />
+      Roshini M -IT<br />
+      Shanmathi N -IT<br />
+      Harini R -IT<br />
+      Sanchana R -IT
     </p>
   </div>
 
   <div style={styles.verticalDivider}></div>
+
+<div style={styles.footerColumn}>
+    <div style={styles.footerHeading}>HEAD OF THE DEPARTMENT</div>
+    
+      <strong style={{ color: '#f2eaeaff' }}>Dr.C.Deisy</strong>
+    
+  </div>
+
 
   <div style={styles.footerColumn}>
     <div style={styles.footerHeading}>Under the guidance of</div>
