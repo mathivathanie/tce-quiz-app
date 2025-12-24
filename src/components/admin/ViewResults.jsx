@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import { styles } from '../common/styles';
+import { adminStyles } from './adminStyles';
 import LoadingError from '../common/LoadingError';
 
 const ViewResults = ({
@@ -14,6 +14,8 @@ const ViewResults = ({
   const [resultSessionCode, setResultSessionCode] = useState('');
   const [studentResults, setStudentResults] = useState([]);
   const [resultFilter, setResultFilter] = useState('all');
+  const [focusedInput, setFocusedInput] = useState(null);
+  const s = adminStyles;
 
   const apiCall = async (endpoint, method = 'GET', data = null) => {
     try {
@@ -123,85 +125,182 @@ const ViewResults = ({
   }, [resultSessionCode]);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div style={s.pageContainer}>
+      <div style={s.contentContainer}>
         <LoadingError loading={loading} error={error} />
+        
         <button 
-          style={{ ...styles.button, marginBottom: '20px' }} 
+          style={s.backButton}
           onClick={() => setActiveAdminSection(null)} 
           disabled={loading}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+            e.currentTarget.style.transform = 'translateX(-5px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.transform = 'translateX(0)';
+          }}
         >
           ← Back to Dashboard
         </button>
-        <div style={styles.resultsHeader}>
-          <h2>Quiz Results</h2>
-          <button style={styles.csvButton} onClick={handleExportCSV} disabled={loading}>
-            Export to CSV
-          </button>
+
+        <div style={s.header}>
+          <h1 style={s.headerTitle}>
+            <span style={s.headerIcon}>📊</span>
+            Quiz Results
+          </h1>
+          <p style={s.headerSubtitle}>View and analyze student quiz results</p>
         </div>
-        <input
-          type="text"
-          placeholder="Enter Quiz Code to see results"
-          value={resultSessionCode}
-          onChange={(e) => setResultSessionCode(e.target.value)}
-          style={styles.input}
-          disabled={loading}
-        />
-        <select value={resultFilter} onChange={(e) => setResultFilter(e.target.value)} style={styles.select}>
-          <option value="all">All Results</option>
-          <option value=">=80">≥ 80%</option>
-          <option value="<=40">≤ 40%</option>
-        </select>
-        <div>
-          {studentResults
-            .filter((result) => {
-              if (resultFilter === '>=80') return result.percentage >= 80;
-              if (resultFilter === '<=40') return result.percentage <= 40;
-              return true;
-            })
-            .map((result, index) => {
-              const grade = getGradeFromPercentage(result.percentage);
-              const isPass = grade !== 'F';
-              return (
-                <div
-                  key={index}
-                  style={{
-                    background: '#fff',
-                    borderRadius: 16,
-                    boxShadow: '0 2px 8px rgba(0,0,0,0.07)',
-                    borderLeft: `6px solid ${isPass ? '#4caf50' : '#f44336'}`,
-                    margin: '18px 0',
-                    padding: '24px 32px',
-                    display: 'flex',
-                    flexDirection: 'column',
-                    gap: 8,
-                    maxWidth: 700
-                  }}
-                >
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 18, flexWrap: 'wrap', gap: 12 }}>
-                    <div><b>Name:</b> {result.studentName}</div>
-                    <div><b>Reg No:</b> {result.regNo}</div>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                      <b>Score:</b> {result.score}/{result.totalQuestions} ({result.percentage}%)
-                      <span style={{
-                        marginLeft: 8,
-                        padding: '2px 12px',
-                        borderRadius: 12,
-                        background: isPass ? '#4caf50' : '#f44336',
-                        color: '#fff',
-                        fontWeight: 700,
-                        fontSize: 15
-                      }}>{grade}</span>
+
+        <div style={s.card}>
+          <div style={{ 
+            display: 'flex', 
+            justifyContent: 'space-between', 
+            alignItems: 'center', 
+            flexWrap: 'wrap',
+            gap: '15px',
+            marginBottom: '25px'
+          }}>
+            <h2 style={{ 
+              fontSize: '24px', 
+              fontWeight: 'bold', 
+              color: 'white', 
+              margin: 0 
+            }}>
+              Results Dashboard
+            </h2>
+            <button 
+              style={{
+                ...s.csvButton,
+                ...(loading ? s.buttonDisabled : {})
+              }}
+              onClick={handleExportCSV} 
+              disabled={loading}
+              onMouseEnter={(e) => {
+                if (!loading) {
+                  Object.assign(e.currentTarget.style, s.buttonHover);
+                }
+              }}
+              onMouseLeave={(e) => {
+                if (!loading) {
+                  e.currentTarget.style.transform = '';
+                  e.currentTarget.style.boxShadow = s.csvButton.boxShadow;
+                }
+              }}
+            >
+              📥 Export to CSV
+            </button>
+          </div>
+
+          <input
+            type="text"
+            placeholder="Enter Quiz Code to see results"
+            value={resultSessionCode}
+            onChange={(e) => setResultSessionCode(e.target.value)}
+            style={{
+              ...s.input,
+              ...(focusedInput === 'sessionCode' ? s.inputFocus : {})
+            }}
+            onFocus={() => setFocusedInput('sessionCode')}
+            onBlur={() => setFocusedInput(null)}
+            disabled={loading}
+          />
+          
+          <select 
+            value={resultFilter} 
+            onChange={(e) => setResultFilter(e.target.value)} 
+            style={s.select}
+          >
+            <option value="all" style={s.selectOption}>All Results</option>
+            <option value=">=80" style={s.selectOption}>≥ 80%</option>
+            <option value="<=40" style={s.selectOption}>≤ 40%</option>
+          </select>
+
+          <div style={{ marginTop: '30px' }}>
+            {studentResults
+              .filter((result) => {
+                if (resultFilter === '>=80') return result.percentage >= 80;
+                if (resultFilter === '<=40') return result.percentage <= 40;
+                return true;
+              })
+              .map((result, index) => {
+                const grade = getGradeFromPercentage(result.percentage);
+                const isPass = grade !== 'F';
+                return (
+                  <div
+                    key={index}
+                    style={{
+                      ...s.resultCard,
+                      ...s.resultCardBorder(isPass)
+                    }}
+                    onMouseEnter={(e) => {
+                      Object.assign(e.currentTarget.style, s.cardHover);
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = '';
+                      e.currentTarget.style.boxShadow = s.resultCard.boxShadow;
+                      e.currentTarget.style.border = s.resultCard.border;
+                    }}
+                  >
+                    <div style={s.resultHeader}>
+                      <div>
+                        <h3 style={s.resultName}>{result.studentName}</h3>
+                        <p style={{ 
+                          color: 'rgba(255, 255, 255, 0.7)', 
+                          fontSize: '14px', 
+                          margin: '5px 0 0 0' 
+                        }}>
+                          Reg No: {result.regNo}
+                        </p>
+                      </div>
+                      <div style={{ textAlign: 'right' }}>
+                        <div style={s.resultScore}>
+                          Score: {result.score}/{result.totalQuestions}
+                        </div>
+                        <div style={{ marginTop: '8px' }}>
+                          <span style={s.gradeBadge(isPass)}>
+                            {result.percentage}% - {grade}
+                          </span>
+                        </div>
+                      </div>
+                    </div>
+                    <div style={s.resultDetails}>
+                      <div>
+                        <strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Department:</strong>{' '}
+                        <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>{result.department}</span>
+                      </div>
+                      <div>
+                        <strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Section:</strong>{' '}
+                        <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>{result.section}</span>
+                      </div>
+                      <div>
+                        <strong style={{ color: 'rgba(255, 255, 255, 0.9)' }}>Submitted:</strong>{' '}
+                        <span style={{ color: 'rgba(255, 255, 255, 0.8)' }}>
+                          {new Date(result.submittedAt).toLocaleString()}
+                        </span>
+                      </div>
                     </div>
                   </div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: 16, flexWrap: 'wrap', gap: 12 }}>
-                    <div><b>Department:</b> {result.department}</div>
-                    <div><b>Section:</b> {result.section}</div>
-                    <div><b>Submitted:</b> {new Date(result.submittedAt).toLocaleString()}</div>
-                  </div>
-                </div>
-              );
-            })}
+                );
+              })}
+            
+            {studentResults.length === 0 && resultSessionCode && (
+              <div style={s.emptyState}>
+                <div style={s.emptyIcon}>📊</div>
+                <h4 style={s.emptyTitle}>No results found</h4>
+                <p style={s.emptyText}>No students have submitted results for this quiz session yet.</p>
+              </div>
+            )}
+
+            {!resultSessionCode && (
+              <div style={s.emptyState}>
+                <div style={s.emptyIcon}>🔍</div>
+                <h4 style={s.emptyTitle}>Enter Quiz Code</h4>
+                <p style={s.emptyText}>Enter a quiz code above to view student results.</p>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

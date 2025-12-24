@@ -29,6 +29,7 @@ const Student = () => {
   const audioRef = useRef(null);
   const [selectedPassage, setSelectedPassage] = useState(null);
   const [showPassageModal, setShowPassageModal] = useState(false);
+  const [loggedInUser, setLoggedInUser] = useState(null);
   
   const API_BASE_URL = 'http://localhost:3001';
 
@@ -470,6 +471,18 @@ const Student = () => {
   }, [studentView, timeLeft, submitQuiz]);
   
   useEffect(() => {
+    const storedUser = localStorage.getItem('user');
+    if (storedUser) {
+      try {
+        const parsedUser = JSON.parse(storedUser);
+        setLoggedInUser(parsedUser);
+      } catch (e) {
+        console.error('Failed to parse user from localStorage:', e);
+      }
+    }
+  }, []);
+
+  useEffect(() => {
     const saved = localStorage.getItem(LOCAL_STORAGE_KEY);
     if (saved) {
       try {
@@ -675,6 +688,20 @@ const Student = () => {
         <div style={styles.card}>
           <ToastContainer />
           <LoadingError loading={loading} error={error} />
+          {loggedInUser && (
+            <div style={{
+              textAlign: 'right',
+              marginBottom: '15px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+            </div>
+          )}
           <div style={{ textAlign: 'center', marginBottom: '30px' }}>
             <h2>Join a Quiz</h2>
             <p style={{ color: '#666' }}>Enter the quiz code provided by your instructor</p>
@@ -704,6 +731,20 @@ const Student = () => {
         <div style={styles.card}>
           <ToastContainer />
           <LoadingError loading={loading} error={error} />
+          {loggedInUser && (
+            <div style={{
+              textAlign: 'right',
+              marginBottom: '15px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+            </div>
+          )}
           <div style={{ textAlign: 'center', marginBottom: '30px' }}>
             <button style={{...styles.button, marginBottom: '20px'}} onClick={() => setStudentView('codeEntry')} disabled={loading}>
               ← Back
@@ -793,6 +834,20 @@ const Student = () => {
         <ToastContainer />
         {showWarning && <div style={styles.warningBanner}>{warningMessage}</div>}
         <div style={styles.card}>
+          {loggedInUser && (
+            <div style={{
+              textAlign: 'right',
+              marginBottom: '15px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+            </div>
+          )}
           <div style={styles.timer}>{formatTime(timeLeft)}</div>
           <div style={styles.progressBar}>
             <div style={styles.progressFill(progress)}></div>
@@ -914,7 +969,22 @@ const Student = () => {
     return (
       <div style={styles.container}>
         <ToastContainer />
-        <div style={{ ...styles.card, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh' }}>
+        <div style={{ ...styles.card, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', position: 'relative' }}>
+          {loggedInUser && (
+            <div style={{
+              position: 'absolute',
+              top: '20px',
+              right: '20px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+            </div>
+          )}
           <div style={{
             ...styles.resultCard,
             animation: 'popIn 0.7s cubic-bezier(0.23, 1, 0.32, 1)',
@@ -1046,6 +1116,20 @@ const Student = () => {
       <div style={styles.container}>
         <div style={styles.waitingCard}>
           <ToastContainer />
+          {loggedInUser && (
+            <div style={{
+              textAlign: 'right',
+              marginBottom: '15px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+            </div>
+          )}
           <h2>Quiz Suspended</h2>
           <p>{suspensionMessage}</p>
           <button style={styles.button} onClick={handleResumeQuiz} disabled={loading}>

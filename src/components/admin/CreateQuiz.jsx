@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { toast } from 'react-toastify';
 import { styles } from '../common/styles';
 import LoadingError from '../common/LoadingError';
+import ConfirmModal from './ConfirmModal';
 import ManualEntry from './create/ManualEntry';
 import ImageQuestions from './create/ImageQuestions';
 import CsvUpload from './create/CsvUpload';
@@ -16,6 +17,7 @@ const CreateQuiz = ({
   error,
   setActiveAdminSection,
   loadQuizSessions,
+  user,
   API_BASE_URL 
 }) => {
   const [entryMethod, setEntryMethod] = useState('manual');
@@ -42,6 +44,8 @@ const CreateQuiz = ({
     options: { a: '', b: '', c: '', d: '' },
     correct: ''
   });
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [questionToDelete, setQuestionToDelete] = useState(null);
 
   const apiCall = async (endpoint, method = 'GET', data = null) => {
     try {
@@ -338,10 +342,13 @@ const CreateQuiz = ({
 
   const handleDeleteQuestion = async (questionIndex) => {
     if (!currentSessionId) return;
-    
-    const confirmDelete = window.confirm('Are you sure you want to delete this question?');
-    if (!confirmDelete) return;
+    setQuestionToDelete(questionIndex);
+    setShowDeleteConfirm(true);
+  };
 
+  const confirmDeleteQuestion = async () => {
+    if (questionToDelete === null || !currentSessionId) return;
+    
     try {
       const currentSession = quizSessions.find(s => s.sessionId === currentSessionId);
       if (!currentSession) {
@@ -349,18 +356,18 @@ const CreateQuiz = ({
         return;
       }
 
-      const questionToDelete = currentSession.questions[questionIndex];
-      if (questionToDelete.questionType === 'image' && questionToDelete.imageUrl) {
+      const question = currentSession.questions[questionToDelete];
+      if (question.questionType === 'image' && question.imageUrl) {
         try {
           await apiCall(`/api/quiz-sessions/delete-image`, 'POST', { 
-            imagePath: questionToDelete.imageUrl 
+            imagePath: question.imageUrl 
           });
         } catch (error) {
           console.error('Failed to delete image file:', error);
         }
       }
 
-      const updatedQuestions = currentSession.questions.filter((_, index) => index !== questionIndex);
+      const updatedQuestions = currentSession.questions.filter((_, index) => index !== questionToDelete);
       
       await apiCall(`/api/quiz-sessions/${currentSessionId}`, 'PUT', {
         questions: updatedQuestions
@@ -368,9 +375,18 @@ const CreateQuiz = ({
 
       await loadQuizSessions();
       toast.success('Question deleted successfully!');
+      setShowDeleteConfirm(false);
+      setQuestionToDelete(null);
     } catch (error) {
       toast.error('Failed to delete question: ' + error.message);
+      setShowDeleteConfirm(false);
+      setQuestionToDelete(null);
     }
+  };
+
+  const cancelDeleteQuestion = () => {
+    setShowDeleteConfirm(false);
+    setQuestionToDelete(null);
   };
 
   const cancelEdit = () => {
@@ -381,36 +397,110 @@ const CreateQuiz = ({
   const currentSession = quizSessions.find((s) => s.sessionId === currentSessionId);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div style={{ 
+      minHeight: '100vh', 
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%)',
+      padding: '40px 20px'
+    }}>
+      <div style={{ maxWidth: '1000px', margin: '0 auto' }}>
         <LoadingError loading={loading} error={error} />
+        
         <button 
-          style={{ ...styles.button, marginBottom: '20px' }} 
+          style={{
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(255, 255, 255, 0.2)',
+            color: 'white',
+            fontWeight: '600',
+            padding: '12px 24px',
+            borderRadius: '12px',
+            cursor: 'pointer',
+            marginBottom: '30px',
+            transition: 'all 0.3s ease',
+            fontSize: '16px'
+          }} 
           onClick={() => setActiveAdminSection(null)} 
           disabled={loading}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+            e.currentTarget.style.transform = 'translateX(-5px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.transform = 'translateX(0)';
+          }}
         >
           ← Back to Dashboard
         </button>
         
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <h2>Create Quiz: {currentSession?.name}</h2>
-          <p style={{ color: '#666', fontSize: '18px' }}>
-            Quiz Code: <strong>{currentSessionId}</strong>
-          </p>
+        {/* Header */}
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <h1 style={{ 
+            fontSize: '42px', 
+            fontWeight: 'bold', 
+            color: 'white', 
+            marginBottom: '15px',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '15px'
+          }}>
+            <span style={{ fontSize: '36px' }}>📝</span>
+            Create Quiz
+          </h1>
+          <h2 style={{ 
+            fontSize: '24px', 
+            color: '#bb86fc', 
+            marginBottom: '10px',
+            fontWeight: '600'
+          }}>
+            {currentSession?.name}
+          </h2>
+          <div style={{
+            display: 'inline-block',
+            background: 'rgba(255, 255, 255, 0.1)',
+            backdropFilter: 'blur(10px)',
+            border: '2px solid rgba(187, 134, 252, 0.3)',
+            borderRadius: '50px',
+            padding: '12px 25px',
+            boxShadow: '0 8px 32px rgba(0, 0, 0, 0.3)'
+          }}>
+            <p style={{ 
+              color: 'white', 
+              fontWeight: '500',
+              margin: 0,
+              fontSize: '16px'
+            }}>
+              Quiz Code: <span style={{ color: '#bb86fc', fontWeight: '700', fontSize: '18px' }}>{currentSessionId}</span>
+            </p>
+          </div>
         </div>
 
         {/* Entry Method Tabs */}
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <div style={{ display: 'inline-flex', background: '#f0f0f0', borderRadius: '25px', padding: '5px' }}>
+        <div style={{ textAlign: 'center', marginBottom: '40px' }}>
+          <div style={{ 
+            display: 'inline-flex', 
+            flexWrap: 'wrap',
+            justifyContent: 'center',
+            gap: '10px',
+            background: 'rgba(255, 255, 255, 0.05)', 
+            backdropFilter: 'blur(10px)',
+            borderRadius: '20px', 
+            padding: '10px',
+            border: '1px solid rgba(255, 255, 255, 0.1)'
+          }}>
             <button
               style={{
-                ...styles.button,
-                background: entryMethod === 'manual' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
-                color: entryMethod === 'manual' ? 'white' : '#666',
-                border: 'none',
-                borderRadius: '20px',
-                margin: '0 5px',
-                padding: '10px 20px',
+                background: entryMethod === 'manual' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                color: entryMethod === 'manual' ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                border: entryMethod === 'manual' ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                boxShadow: entryMethod === 'manual' ? '0 4px 15px rgba(102, 126, 234, 0.4)' : 'none'
               }}
               onClick={() => setEntryMethod('manual')}
               disabled={loading}
@@ -419,13 +509,16 @@ const CreateQuiz = ({
             </button>
             <button
               style={{
-                ...styles.button,
-                background: entryMethod === 'image' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
-                color: entryMethod === 'image' ? 'white' : '#666',
-                border: 'none',
-                borderRadius: '20px',
-                margin: '0 5px',
-                padding: '10px 20px',
+                background: entryMethod === 'image' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                color: entryMethod === 'image' ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                border: entryMethod === 'image' ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                boxShadow: entryMethod === 'image' ? '0 4px 15px rgba(102, 126, 234, 0.4)' : 'none'
               }}
               onClick={() => setEntryMethod('image')}
             >
@@ -433,13 +526,16 @@ const CreateQuiz = ({
             </button>
             <button
               style={{
-                ...styles.button,
-                background: entryMethod === 'csv' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
-                color: entryMethod === 'csv' ? 'white' : '#666',
-                border: 'none',
-                borderRadius: '20px',
-                margin: '0 5px',
-                padding: '10px 20px',
+                background: entryMethod === 'csv' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                color: entryMethod === 'csv' ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                border: entryMethod === 'csv' ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                boxShadow: entryMethod === 'csv' ? '0 4px 15px rgba(102, 126, 234, 0.4)' : 'none'
               }}
               onClick={() => setEntryMethod('csv')}
               disabled={loading}
@@ -448,13 +544,16 @@ const CreateQuiz = ({
             </button>
             <button
               style={{
-                ...styles.button,
-                background: entryMethod === 'comprehension' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
-                color: entryMethod === 'comprehension' ? 'white' : '#666',
-                border: 'none',
-                borderRadius: '20px',
-                margin: '0 5px',
-                padding: '10px 20px',
+                background: entryMethod === 'comprehension' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                color: entryMethod === 'comprehension' ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                border: entryMethod === 'comprehension' ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                boxShadow: entryMethod === 'comprehension' ? '0 4px 15px rgba(102, 126, 234, 0.4)' : 'none'
               }}
               onClick={() => setEntryMethod('comprehension')}
               disabled={loading}
@@ -463,13 +562,16 @@ const CreateQuiz = ({
             </button>
             <button
               style={{
-                ...styles.button,
-                background: entryMethod === 'audio' ? 'linear-gradient(45deg, #667eea, #764ba2)' : 'transparent',
-                color: entryMethod === 'audio' ? 'white' : '#666',
-                border: 'none',
-                borderRadius: '20px',
-                margin: '0 5px',
-                padding: '10px 20px',
+                background: entryMethod === 'audio' ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'transparent',
+                color: entryMethod === 'audio' ? 'white' : 'rgba(255, 255, 255, 0.7)',
+                border: entryMethod === 'audio' ? 'none' : '1px solid rgba(255, 255, 255, 0.2)',
+                borderRadius: '12px',
+                padding: '12px 20px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px',
+                transition: 'all 0.3s ease',
+                boxShadow: entryMethod === 'audio' ? '0 4px 15px rgba(102, 126, 234, 0.4)' : 'none'
               }}
               onClick={() => setEntryMethod('audio')}
               disabled={loading}
@@ -574,6 +676,19 @@ const CreateQuiz = ({
             styles={styles}
           />
         )}
+
+        {/* Delete Confirmation Modal */}
+        <ConfirmModal
+          show={showDeleteConfirm}
+          title="Delete Question"
+          message="Are you sure you want to delete this question? This action cannot be undone."
+          icon="🗑️"
+          confirmText="Delete"
+          cancelText="Cancel"
+          onConfirm={confirmDeleteQuestion}
+          onCancel={cancelDeleteQuestion}
+          confirmButtonStyle="danger"
+        />
       </div>
     </div>
   );

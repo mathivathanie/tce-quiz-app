@@ -19,6 +19,9 @@ const Admin = () => {
   const [activeAdminSection, setActiveAdminSection] = useState(null);
   const [quizSessions, setQuizSessions] = useState([]);
   const [currentSessionId, setCurrentSessionId] = useState('');
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  const [sessionName, setSessionName] = useState("");
+
 
   const API_BASE_URL = 'http://localhost:3001';
 
@@ -73,24 +76,35 @@ const Admin = () => {
     }
   };
 
-  const handleCreateSession = async () => {
-    const sessionName = prompt('Enter Quiz Session Name:');
-    if (sessionName && user) {
-      try {
-        const newSession = await apiCall('/api/quiz-sessions', 'POST', { 
-          name: sessionName, 
-          createdBy: user.email,
-          adminUserId: user._id
-        });
-        setCurrentSessionId(newSession.sessionId);
-        setActiveAdminSection('create');
-        await loadQuizSessions();
-        toast.success(`Session created with ID: ${newSession.sessionId}`);
-      } catch (error) {
-        toast.error('Failed to create session: ' + error.message);
-      }
+  const handleOpenSessionModal = () => {
+  setSessionName('');
+  setShowSessionModal(true);
+};
+
+const handleCloseSessionModal = () => {
+  setShowSessionModal(false);
+  setSessionName('');
+};
+
+const handleCreateSession = async () => {
+  if (sessionName.trim() && user) {
+    try {
+      const newSession = await apiCall('/api/quiz-sessions', 'POST', { 
+        name: sessionName.trim(), 
+        createdBy: user.email,
+        adminUserId: user._id
+      });
+      setCurrentSessionId(newSession.sessionId);
+      setActiveAdminSection('create');
+      await loadQuizSessions();
+      handleCloseSessionModal();
+      toast.success(`Session created with ID: ${newSession.sessionId}`);
+    } catch (error) {
+      toast.error('Failed to create session: ' + error.message);
     }
-  };
+  }
+};
+
 
   useEffect(() => {
     if (user && user.role === 'admin') {
@@ -114,6 +128,20 @@ const Admin = () => {
         <div style={styles.card}>
           <ToastContainer />
           <LoadingError loading={loading} error={error} />
+          {user && user.email && (
+            <div style={{
+              textAlign: 'right',
+              marginBottom: '15px',
+              padding: '10px',
+              background: 'rgba(102, 126, 234, 0.1)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#667eea',
+              fontWeight: '500'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{user.email}</span>
+            </div>
+          )}
           <div style={{ textAlign: 'center', marginBottom: '30px' }}>
             <h2>Admin Login</h2>
             <p style={{ color: '#666' }}>Enter admin code to continue</p>
@@ -149,6 +177,7 @@ const Admin = () => {
           error={error}
           setActiveAdminSection={setActiveAdminSection}
           loadQuizSessions={loadQuizSessions}
+          user={user}
           API_BASE_URL={API_BASE_URL}
         />
       </>
@@ -165,6 +194,7 @@ const Admin = () => {
           error={error}
           setActiveAdminSection={setActiveAdminSection}
           loadQuizSessions={loadQuizSessions}
+          user={user}
           API_BASE_URL={API_BASE_URL}
         />
       </>
@@ -207,11 +237,30 @@ const Admin = () => {
     <div style={{ 
       minHeight: '100vh', 
       background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #1a1a2e 100%)',
-      padding: '40px 20px'
+      padding: '40px 20px',
+      position: 'relative'
     }}>
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <ToastContainer />
         <LoadingError loading={loading} error={error} />
+        {user && user.email && (
+          <div style={{
+            position: 'absolute',
+            top: '20px',
+            right: '20px',
+            padding: '10px 15px',
+            background: 'rgba(102, 126, 234, 0.2)',
+            backdropFilter: 'blur(10px)',
+            borderRadius: '8px',
+            fontSize: '14px',
+            color: '#bb86fc',
+            fontWeight: '500',
+            border: '1px solid rgba(187, 134, 252, 0.3)',
+            zIndex: 10
+          }}>
+            Logged in as: <span style={{ fontWeight: '600' }}>{user.email}</span>
+          </div>
+        )}
         
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '50px' }}>
@@ -306,7 +355,7 @@ const Admin = () => {
                 boxShadow: '0 8px 20px rgba(0, 0, 0, 0.2)',
                 transition: 'all 0.3s ease'
               }}
-              onClick={handleCreateSession} 
+              onClick={handleOpenSessionModal} 
               disabled={loading}
               onMouseEnter={(e) => {
                 e.currentTarget.style.transform = 'scale(1.1)';
@@ -600,6 +649,45 @@ const Admin = () => {
             </div>
             <div style={{ color: '#d1d5db', fontWeight: '500', fontSize: '18px' }}>Total Questions</div>
           </div>
+          {/* Session Creation Modal */}
+{showSessionModal && (
+  <div style={{
+    position: 'fixed', top: 0, left: 0, right: 0, bottom: 0,
+    background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(5px)',
+    display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000
+  }}>
+    <div style={{
+      background: 'linear-gradient(135deg, #1a1a2e 0%, #16213e 100%)',
+      borderRadius: '24px', padding: '40px', minWidth: '400px', maxWidth: '500px',
+      border: '2px solid rgba(187, 134, 252, 0.3)', boxShadow: '0 25px 80px rgba(0, 0, 0, 0.5)'
+    }}>
+      <h2 style={{ fontSize: '28px', fontWeight: 'bold', color: 'white', marginBottom: '10px', textAlign: 'center' }}>
+        📝 Create New Session
+      </h2>
+      <p style={{ color: '#9ca3af', textAlign: 'center', marginBottom: '30px' }}>Enter a name for your quiz session</p>
+      <input type="text" placeholder="Enter session name..." value={sessionName}
+        onChange={(e) => setSessionName(e.target.value)}
+        onKeyPress={(e) => e.key === 'Enter' && handleCreateSession()} autoFocus
+        style={{ width: '100%', padding: '16px 20px', fontSize: '18px', border: '2px solid rgba(187, 134, 252, 0.3)',
+          borderRadius: '12px', background: 'rgba(255, 255, 255, 0.05)', color: 'white', outline: 'none',
+          marginBottom: '25px', boxSizing: 'border-box' }}
+      />
+      <div style={{ display: 'flex', gap: '15px', justifyContent: 'center' }}>
+        <button onClick={handleCloseSessionModal} style={{ padding: '14px 32px', fontSize: '16px', fontWeight: '600',
+          borderRadius: '12px', border: '2px solid rgba(255, 255, 255, 0.2)', background: 'transparent', color: 'white', cursor: 'pointer' }}>
+          Cancel
+        </button>
+        <button onClick={handleCreateSession} disabled={!sessionName.trim() || loading}
+          style={{ padding: '14px 32px', fontSize: '16px', fontWeight: '600', borderRadius: '12px', border: 'none',
+            background: sessionName.trim() ? 'linear-gradient(135deg, #667eea 0%, #764ba2 100%)' : 'rgba(255, 255, 255, 0.1)',
+            color: 'white', cursor: sessionName.trim() ? 'pointer' : 'not-allowed' }}>
+          {loading ? 'Creating...' : 'Create Session'}
+        </button>
+      </div>
+    </div>
+  </div>
+)}
+
         </div>
       </div>
     </div>

@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { toast } from 'react-toastify';
-import { styles } from '../common/styles';
+import { adminStyles } from './adminStyles';
 import LoadingError from '../common/LoadingError';
+import ConfirmModal from './ConfirmModal';
 
 const Violations = ({
   loading,
@@ -14,6 +15,10 @@ const Violations = ({
   const [quizViolations, setQuizViolations] = useState([]);
   const [selectedViolation, setSelectedViolation] = useState(null);
   const [showViolationDetails, setShowViolationDetails] = useState(false);
+  const [showRestartConfirm, setShowRestartConfirm] = useState(false);
+  const [violationToRestart, setViolationToRestart] = useState(null);
+  const [focusedInput, setFocusedInput] = useState(null);
+  const s = adminStyles;
 
   const apiCall = async (endpoint, method = 'GET', data = null) => {
     try {
@@ -68,24 +73,36 @@ const Violations = ({
   };
 
   const handleRestartStudentQuiz = async (violation) => {
-    const confirmRestart = window.confirm(
-      `Are you sure you want to restart the quiz for ${violation.studentName} (${violation.regNo})?\n\nThis will:\n• Allow them to restart from question 1\n• Give them full time allocation\n• Reset their violation count\n• Mark this violation as resolved`
-    );
-    if (!confirmRestart) return;
+    setViolationToRestart(violation);
+    setShowRestartConfirm(true);
+  };
+
+  const confirmRestartQuiz = async () => {
+    if (!violationToRestart) return;
+    
     try {
-      const response = await apiCall(`/api/quiz-violations/${violation._id}/restart`, 'POST', {
+      const response = await apiCall(`/api/quiz-violations/${violationToRestart._id}/restart`, 'POST', {
         adminAction: true,
         restartReason: 'Admin approved restart due to violations',
       });
       if (response.success) {
-        toast.info(`Quiz restart approved for ${violation.studentName}! The student can restart without a token.`);
+        toast.info(`Quiz restart approved for ${violationToRestart.studentName}! The student can restart without a token.`);
         if (violationSessionCode) {
           await loadQuizViolations(violationSessionCode);
         }
       }
+      setShowRestartConfirm(false);
+      setViolationToRestart(null);
     } catch (error) {
       toast.error('Failed to approve quiz restart: ' + error.message);
+      setShowRestartConfirm(false);
+      setViolationToRestart(null);
     }
+  };
+
+  const cancelRestartQuiz = () => {
+    setShowRestartConfirm(false);
+    setViolationToRestart(null);
   };
 
   useEffect(() => {
@@ -95,173 +112,357 @@ const Violations = ({
   }, [violationSessionCode]);
 
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div style={s.pageContainer}>
+      <div style={s.contentContainer}>
         <LoadingError loading={loading} error={error} />
+        
         <button 
-          style={{ ...styles.button, marginBottom: '20px' }} 
+          style={s.backButton}
           onClick={() => setActiveAdminSection(null)} 
           disabled={loading}
+          onMouseEnter={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+            e.currentTarget.style.transform = 'translateX(-5px)';
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+            e.currentTarget.style.transform = 'translateX(0)';
+          }}
         >
           ← Back to Dashboard
         </button>
-        <h2>Quiz Violations</h2>
-        <input
-          type="text"
-          placeholder="Enter Quiz Code to see violations"
-          value={violationSessionCode}
-          onChange={(e) => setViolationSessionCode(e.target.value)}
-          style={styles.input}
-        />
-        <div>
-          {quizViolations.map((violation) => (
-            <div key={violation._id} style={styles.violationCard}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '15px' }}>
-                <div>
-                  <p style={{ margin: '5px 0', fontSize: '16px' }}>
-                    <strong>{violation.studentName}</strong> ({violation.regNo})
-                  </p>
-                  <p style={{ margin: '5px 0', color: '#666' }}>
-                    <strong>Department:</strong> {violation.department}
-                  </p>
-                  <p style={{ margin: '5px 0', color: '#666' }}>
-                    <strong>Section:</strong> {violation.section}
-                  </p>
-                </div>
-                <div style={{ textAlign: 'right' }}>
-                  <div style={styles.violationStatusBadge(violation.isResolved, violation.adminAction)}>
-                    {violation.isResolved ? '✅ Resolved' : 
-                     violation.adminAction === 'resume_approved' ? '🔄 Resume Approved' :
-                     violation.adminAction === 'restart_approved' ? '🔄 Restart Approved' :
-                     '⏳ Pending'}
-                  </div>
-                  <p style={{ fontSize: '12px', color: '#666', marginTop: '5px' }}>
-                    {new Date(violation.createdAt).toLocaleString()}
-                  </p>
-                </div>
-              </div>
-              
-              <div style={{ background: '#f8f9fa', padding: '15px', borderRadius: '8px', marginBottom: '15px' }}>
-                <h4 style={{ margin: '0 0 10px 0', color: '#dc3545' }}>Violation Details</h4>
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '15px' }}>
-                  <div>
-                    <p style={{ margin: '5px 0' }}>
-                      <strong>Type:</strong> 
-                      <span style={styles.violationTypeBadge(violation.violationType)}>
-                        {violation.violationType.replace(/_/g, ' ').toUpperCase()}
-                      </span>
-                    </p>
-                    <p style={{ margin: '5px 0' }}>
-                      <strong>Current Question:</strong> {violation.currentQuestion || 'N/A'}
-                    </p>
-                    <p style={{ margin: '5px 0' }}>
-                      <strong>Time Left:</strong> {Math.floor((violation.timeLeft || 0) / 60)}m {(violation.timeLeft || 0) % 60}s
-                    </p>
-                  </div>
-                  <div>
-                    <p style={{ margin: '5px 0' }}>
-                      <strong>Tab Switches:</strong> {violation.tabSwitchCount || 0}
-                    </p>
-                    <p style={{ margin: '5px 0' }}>
-                      <strong>Time Spent:</strong> {Math.floor((violation.timeSpent || 0) / 60)}m {(violation.timeSpent || 0) % 60}s
-                    </p>
-                    {violation.resolvedAt && (
-                      <p style={{ margin: '5px 0', color: '#28a745' }}>
-                        <strong>Resolved:</strong> {new Date(violation.resolvedAt).toLocaleString()}
-                      </p>
-                    )}
-                  </div>
-                </div>
-              </div>
 
-              <div style={{ display: 'flex', gap: '10px', flexWrap: 'wrap' }}>
-                <button
-                  style={styles.resumeButton}
-                  onClick={() => {
-                    setSelectedViolation(violation);
-                    setShowViolationDetails(true);
-                  }}
-                >
-                  📋 Details
-                </button>
-                {!violation.isResolved && (
-                  <>
-                    {violation.adminAction !== 'resume_approved' && (
-                      <button 
-                        style={{ ...styles.resumeButton, background: 'linear-gradient(45deg, #28a745, #20c997)' }}
-                        onClick={() => handleApproveResume(violation._id)} 
-                        disabled={loading}
-                      >
-                        ✅ Approve Resume
-                      </button>
-                    )}
-                    
-                    {violation.adminAction !== 'restart_approved' && (
-                      <button 
-                        style={{ ...styles.resumeButton, background: 'linear-gradient(45deg, #ffc107, #fd7e14)' }}
-                        onClick={() => handleRestartStudentQuiz(violation)} 
-                        disabled={loading}
-                      >
-                        🔄 Approve Restart
-                      </button>
-                    )}
-                  </>
-                )}
+        <div style={s.header}>
+          <h1 style={s.headerTitle}>
+            <span style={s.headerIcon}>⚠️</span>
+            Quiz Violations
+          </h1>
+          <p style={s.headerSubtitle}>Monitor and manage quiz rule violations</p>
+        </div>
+
+        <div style={s.card}>
+          <input
+            type="text"
+            placeholder="Enter Quiz Code to see violations"
+            value={violationSessionCode}
+            onChange={(e) => setViolationSessionCode(e.target.value)}
+            style={{
+              ...s.input,
+              ...(focusedInput === 'sessionCode' ? s.inputFocus : {})
+            }}
+            onFocus={() => setFocusedInput('sessionCode')}
+            onBlur={() => setFocusedInput(null)}
+            disabled={loading}
+          />
+
+          <div style={{ marginTop: '30px' }}>
+            {quizViolations.map((violation) => (
+              <div 
+                key={violation._id} 
+                style={s.violationCard}
+                onMouseEnter={(e) => {
+                  Object.assign(e.currentTarget.style, s.cardHover);
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.transform = '';
+                  e.currentTarget.style.boxShadow = s.violationCard.boxShadow;
+                  e.currentTarget.style.border = s.violationCard.border;
+                }}
+              >
+                <div style={s.violationHeader}>
+                  <div>
+                    <p style={s.violationStudentName}>
+                      {violation.studentName} ({violation.regNo})
+                    </p>
+                    <p style={s.violationInfo}>
+                      <strong>Department:</strong> {violation.department}
+                    </p>
+                    <p style={s.violationInfo}>
+                      <strong>Section:</strong> {violation.section}
+                    </p>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div style={s.violationStatusBadge(violation.isResolved, violation.adminAction)}>
+                      {violation.isResolved ? '✅ Resolved' : 
+                       violation.adminAction === 'resume_approved' ? '🔄 Resume Approved' :
+                       violation.adminAction === 'restart_approved' ? '🔄 Restart Approved' :
+                       '⏳ Pending'}
+                    </div>
+                    <p style={{ 
+                      fontSize: '12px', 
+                      color: 'rgba(255, 255, 255, 0.6)', 
+                      marginTop: '8px' 
+                    }}>
+                      {new Date(violation.createdAt).toLocaleString()}
+                    </p>
+                  </div>
+                </div>
                 
-                {violation.isResolved && (
-                  <span style={styles.resolvedBadge}>
-                    ✅ Issue Resolved
-                  </span>
-                )}
+                <div style={s.violationDetailsBox}>
+                  <h4 style={s.violationDetailsTitle}>⚠️ Violation Details</h4>
+                  <div style={s.violationDetailsGrid}>
+                    <div>
+                      <p style={s.violationDetailItem}>
+                        <span style={s.violationDetailLabel}>Type:</span>
+                        <span style={s.violationTypeBadge(violation.violationType)}>
+                          {violation.violationType.replace(/_/g, ' ').toUpperCase()}
+                        </span>
+                      </p>
+                      <p style={s.violationDetailItem}>
+                        <span style={s.violationDetailLabel}>Current Question:</span>
+                        <span style={s.violationDetailValue}>{violation.currentQuestion || 'N/A'}</span>
+                      </p>
+                      <p style={s.violationDetailItem}>
+                        <span style={s.violationDetailLabel}>Time Left:</span>
+                        <span style={s.violationDetailValue}>
+                          {Math.floor((violation.timeLeft || 0) / 60)}m {(violation.timeLeft || 0) % 60}s
+                        </span>
+                      </p>
+                    </div>
+                    <div>
+                      <p style={s.violationDetailItem}>
+                        <span style={s.violationDetailLabel}>Tab Switches:</span>
+                        <span style={s.violationDetailValue}>{violation.tabSwitchCount || 0}</span>
+                      </p>
+                      <p style={s.violationDetailItem}>
+                        <span style={s.violationDetailLabel}>Time Spent:</span>
+                        <span style={s.violationDetailValue}>
+                          {Math.floor((violation.timeSpent || 0) / 60)}m {(violation.timeSpent || 0) % 60}s
+                        </span>
+                      </p>
+                      {violation.resolvedAt && (
+                        <p style={{ ...s.violationDetailItem, color: '#4facfe' }}>
+                          <span style={s.violationDetailLabel}>Resolved:</span>
+                          <span style={s.violationDetailValue}>
+                            {new Date(violation.resolvedAt).toLocaleString()}
+                          </span>
+                        </p>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={s.buttonGroup}>
+                  <button
+                    style={{
+                      ...s.button,
+                      ...s.buttonInfo
+                    }}
+                    onClick={() => {
+                      setSelectedViolation(violation);
+                      setShowViolationDetails(true);
+                    }}
+                    onMouseEnter={(e) => {
+                      Object.assign(e.currentTarget.style, s.buttonHover);
+                    }}
+                    onMouseLeave={(e) => {
+                      e.currentTarget.style.transform = '';
+                      e.currentTarget.style.boxShadow = s.buttonInfo.boxShadow;
+                    }}
+                  >
+                    📋 View Details
+                  </button>
+                  {!violation.isResolved && (
+                    <>
+                      {violation.adminAction !== 'resume_approved' && (
+                        <button 
+                          style={{
+                            ...s.button,
+                            ...s.buttonSuccess,
+                            ...(loading ? s.buttonDisabled : {})
+                          }}
+                          onClick={() => handleApproveResume(violation._id)} 
+                          disabled={loading}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              Object.assign(e.currentTarget.style, s.buttonHover);
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!loading) {
+                              e.currentTarget.style.transform = '';
+                              e.currentTarget.style.boxShadow = s.buttonSuccess.boxShadow;
+                            }
+                          }}
+                        >
+                          ✅ Approve Resume
+                        </button>
+                      )}
+                      
+                      {violation.adminAction !== 'restart_approved' && (
+                        <button 
+                          style={{
+                            ...s.button,
+                            ...s.buttonWarning,
+                            ...(loading ? s.buttonDisabled : {})
+                          }}
+                          onClick={() => handleRestartStudentQuiz(violation)} 
+                          disabled={loading}
+                          onMouseEnter={(e) => {
+                            if (!loading) {
+                              Object.assign(e.currentTarget.style, s.buttonHover);
+                            }
+                          }}
+                          onMouseLeave={(e) => {
+                            if (!loading) {
+                              e.currentTarget.style.transform = '';
+                              e.currentTarget.style.boxShadow = s.buttonWarning.boxShadow;
+                            }
+                          }}
+                        >
+                          🔄 Approve Restart
+                        </button>
+                      )}
+                    </>
+                  )}
+                  
+                  {violation.isResolved && (
+                    <span style={s.violationStatusBadge(true, null)}>
+                      ✅ Issue Resolved
+                    </span>
+                  )}
+                </div>
               </div>
-            </div>
-          ))}
-          
-          {quizViolations.length === 0 && violationSessionCode && (
-            <div style={{ textAlign: 'center', padding: '40px', color: '#666' }}>
-              <div style={{ fontSize: '3rem', marginBottom: '15px' }}>✅</div>
-              <h4>No violations found</h4>
-              <p>Great! No students have violated quiz rules in this session.</p>
-            </div>
-          )}
+            ))}
+            
+            {quizViolations.length === 0 && violationSessionCode && (
+              <div style={s.emptyState}>
+                <div style={s.emptyIcon}>✅</div>
+                <h4 style={s.emptyTitle}>No violations found</h4>
+                <p style={s.emptyText}>Great! No students have violated quiz rules in this session.</p>
+              </div>
+            )}
+
+            {!violationSessionCode && (
+              <div style={s.emptyState}>
+                <div style={s.emptyIcon}>🔍</div>
+                <h4 style={s.emptyTitle}>Enter Quiz Code</h4>
+                <p style={s.emptyText}>Enter a quiz code above to view violations.</p>
+              </div>
+            )}
+          </div>
         </div>
         
         {showViolationDetails && selectedViolation && (
-          <div style={styles.passageModal}>
-            <div style={styles.passageContent}>
-              <button onClick={() => setShowViolationDetails(false)} style={{ float: 'right' }}>
-                Close
+          <div style={s.modal}>
+            <div style={s.modalContent}>
+              <button 
+                onClick={() => setShowViolationDetails(false)} 
+                style={s.modalCloseButton}
+                onMouseEnter={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.2)';
+                  e.currentTarget.style.transform = 'scale(1.1)';
+                }}
+                onMouseLeave={(e) => {
+                  e.currentTarget.style.background = 'rgba(255, 255, 255, 0.1)';
+                  e.currentTarget.style.transform = 'scale(1)';
+                }}
+              >
+                ✕
               </button>
-              <h3>Violation Details - {selectedViolation.studentName}</h3>
+              <h3 style={s.modalTitle}>Violation Details - {selectedViolation.studentName}</h3>
               
-              <div style={{ background: '#f8f9fa', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-                <h4>Status Information</h4>
-                <div style={styles.violationStatusBadge(selectedViolation.isResolved, selectedViolation.adminAction)}>
-                  {selectedViolation.isResolved ? '✅ Resolved' : 
-                   selectedViolation.adminAction === 'resume_approved' ? '🔄 Resume Approved' :
-                   selectedViolation.adminAction === 'restart_approved' ? '🔄 Restart Approved' :
-                   '⏳ Pending'}
+              <div style={s.violationDetailsBox}>
+                <h4 style={{ ...s.violationDetailsTitle, marginBottom: '15px' }}>Status Information</h4>
+                <div style={{ marginBottom: '15px' }}>
+                  <div style={s.violationStatusBadge(selectedViolation.isResolved, selectedViolation.adminAction)}>
+                    {selectedViolation.isResolved ? '✅ Resolved' : 
+                     selectedViolation.adminAction === 'resume_approved' ? '🔄 Resume Approved' :
+                     selectedViolation.adminAction === 'restart_approved' ? '🔄 Restart Approved' :
+                     '⏳ Pending'}
+                  </div>
                 </div>
-                <p><strong>Created:</strong> {new Date(selectedViolation.createdAt).toLocaleString()}</p>
+                <p style={s.violationDetailItem}>
+                  <span style={s.violationDetailLabel}>Created:</span>
+                  <span style={s.violationDetailValue}>
+                    {new Date(selectedViolation.createdAt).toLocaleString()}
+                  </span>
+                </p>
                 {selectedViolation.resolvedAt && (
-                  <p><strong>Resolved:</strong> {new Date(selectedViolation.resolvedAt).toLocaleString()}</p>
+                  <p style={s.violationDetailItem}>
+                    <span style={s.violationDetailLabel}>Resolved:</span>
+                    <span style={s.violationDetailValue}>
+                      {new Date(selectedViolation.resolvedAt).toLocaleString()}
+                    </span>
+                  </p>
                 )}
               </div>
 
-              <div style={{ background: '#fff3cd', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
-                <h4>Violation Details</h4>
-                <p><strong>Student:</strong> {selectedViolation.studentName} ({selectedViolation.regNo})</p>
-                <p><strong>Department:</strong> {selectedViolation.department}</p>
-                <p><strong>Section:</strong> {selectedViolation.section}</p>
-                <p><strong>Violation Type:</strong> {selectedViolation.violationType.replace(/_/g, ' ').toUpperCase()}</p>
-                <p><strong>Current Question:</strong> {selectedViolation.currentQuestion || 'N/A'}</p>
-                <p><strong>Time Left:</strong> {Math.floor((selectedViolation.timeLeft || 0) / 60)}m {(selectedViolation.timeLeft || 0) % 60}s</p>
-                <p><strong>Time Spent:</strong> {Math.floor((selectedViolation.timeSpent || 0) / 60)}m {(selectedViolation.timeSpent || 0) % 60}s</p>
-                <p><strong>Tab Switch Count:</strong> {selectedViolation.tabSwitchCount || 0}</p>
+              <div style={{
+                ...s.violationDetailsBox,
+                background: 'rgba(250, 112, 154, 0.1)',
+                border: '2px solid rgba(250, 112, 154, 0.3)'
+              }}>
+                <h4 style={{ ...s.violationDetailsTitle, color: '#fa709a', marginBottom: '15px' }}>
+                  Violation Details
+                </h4>
+                <div style={s.violationDetailsGrid}>
+                  <div>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Student:</span>
+                      <span style={s.violationDetailValue}>
+                        {selectedViolation.studentName} ({selectedViolation.regNo})
+                      </span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Department:</span>
+                      <span style={s.violationDetailValue}>{selectedViolation.department}</span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Section:</span>
+                      <span style={s.violationDetailValue}>{selectedViolation.section}</span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Violation Type:</span>
+                      <span style={s.violationTypeBadge(selectedViolation.violationType)}>
+                        {selectedViolation.violationType.replace(/_/g, ' ').toUpperCase()}
+                      </span>
+                    </p>
+                  </div>
+                  <div>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Current Question:</span>
+                      <span style={s.violationDetailValue}>
+                        {selectedViolation.currentQuestion || 'N/A'}
+                      </span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Time Left:</span>
+                      <span style={s.violationDetailValue}>
+                        {Math.floor((selectedViolation.timeLeft || 0) / 60)}m {(selectedViolation.timeLeft || 0) % 60}s
+                      </span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Time Spent:</span>
+                      <span style={s.violationDetailValue}>
+                        {Math.floor((selectedViolation.timeSpent || 0) / 60)}m {(selectedViolation.timeSpent || 0) % 60}s
+                      </span>
+                    </p>
+                    <p style={s.violationDetailItem}>
+                      <span style={s.violationDetailLabel}>Tab Switch Count:</span>
+                      <span style={s.violationDetailValue}>
+                        {selectedViolation.tabSwitchCount || 0}
+                      </span>
+                    </p>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
         )}
+
+        {/* Restart Confirmation Modal */}
+        <ConfirmModal
+          show={showRestartConfirm}
+          title="Restart Quiz"
+          message={violationToRestart ? `Are you sure you want to restart the quiz for ${violationToRestart.studentName} (${violationToRestart.regNo})?\n\nThis will:\n• Allow them to restart from question 1\n• Give them full time allocation\n• Reset their violation count\n• Mark this violation as resolved` : ''}
+          icon="🔄"
+          confirmText="Approve Restart"
+          cancelText="Cancel"
+          onConfirm={confirmRestartQuiz}
+          onCancel={cancelRestartQuiz}
+          confirmButtonStyle="warning"
+        />
       </div>
     </div>
   );
