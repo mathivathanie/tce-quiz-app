@@ -3,6 +3,7 @@ import { Routes, Route, Navigate } from "react-router-dom";
 import Auth from "./components/Auth";
 import Admin from "./components/admin/Admin";
 import Student from "./components/student/Student";
+import SuperAdmin from "./components/admin/SuperAdmin";
 import ProtectedRoute from "./components/ProtectedRoute";
 
 export default function App() {
@@ -15,7 +16,13 @@ export default function App() {
         element={
           user ? (
             <Navigate
-              to={user.role === "admin" ? "/admin" : "/student"}
+              to={
+                user.role === "superadmin" 
+                  ? "/superadmin" 
+                  : user.role === "admin" 
+                    ? "/admin" 
+                    : "/student"
+              }
               replace
             />
           ) : (
@@ -25,6 +32,15 @@ export default function App() {
       />
 
       <Route path="/login" element={<Auth />} />
+
+      <Route
+        path="/superadmin"
+        element={
+          <ProtectedRoute role="superadmin">
+            <SuperAdmin />
+          </ProtectedRoute>
+        }
+      />
 
       <Route
         path="/admin"

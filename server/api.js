@@ -6,6 +6,7 @@ import multer, { diskStorage } from 'multer';
 import { extname, join, resolve } from 'path';
 import { existsSync, mkdirSync, unlinkSync, statSync, createReadStream } from 'fs';
 import dotenv from 'dotenv';
+import { initSuperAdminRoutes } from './superadmin.js';
 dotenv.config();
 const app = express();
 const PORT = 3001;        
@@ -313,12 +314,20 @@ const userSchema = new mongoose.Schema({
   role: {
     type: String,
     required: true,
-    enum: ['student', 'admin'],
+    enum: ['student', 'admin', 'superadmin'],
     default: 'student'
   },
   isActive: {
     type: Boolean,
     default: true
+  },
+  isLoggedIn: {
+    type: Boolean,
+    default: false
+  },
+  loginTime: {
+    type: Date,
+    default: null
   },
   createdAt: {
     type: Date,
@@ -614,8 +623,10 @@ app.post('/api/user/login', async (req, res) => {
       });
     }
     
-    // Update last login
+    // Update last login, isLoggedIn, and loginTime
     user.lastLogin = new Date();
+    user.isLoggedIn = true;
+    user.loginTime = new Date();
     await user.save();
     
     // Remove password from response
@@ -2041,13 +2052,6 @@ app.use((err, req, res, next) => {
            }
          });
 
-// 404 handler
-app.use((req, res) => {
-  res.status(404).json({ 
-    message: 'Route not found',
-    path: req.originalUrl 
-  });
-});
 app.get('/api/quiz-sessions/:sessionId/audio', async (req, res) => {
   const sessionId = req.params.sessionId.toUpperCase();
   try {
@@ -2068,6 +2072,18 @@ app.get('/api/quiz-sessions/:sessionId/audio', async (req, res) => {
     res.status(500).json({ message: 'Internal server error' });
   }
 });
+
+// Initialize Super Admin routes (User and QuizSession models are already defined above)
+initSuperAdminRoutes(app, User, QuizSession);
+
+// 404 handler - MUST be last, after all routes
+app.use((req, res) => {
+  res.status(404).json({ 
+    message: 'Route not found',
+    path: req.originalUrl 
+  });
+});
+
 // Start server
 app.listen(PORT, () => {
   console.log(`🚀 Quiz API Server running on port ${PORT}`);

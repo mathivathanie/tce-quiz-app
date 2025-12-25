@@ -81,7 +81,9 @@ const Auth = () => {
         setUser(response.user);
 
         // Navigate based on role
-        if (response.user.role === 'admin') {
+        if (response.user.role === 'superadmin') {
+          navigate('/superadmin', { replace: true });
+        } else if (response.user.role === 'admin') {
           navigate('/admin', { replace: true });
         } else {
           navigate('/student', { replace: true });
@@ -124,10 +126,25 @@ const Auth = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    setUser(null);
-    navigate('/login', { replace: true });
+  const handleLogout = async () => {
+    try {
+      const storedUser = JSON.parse(localStorage.getItem("user"));
+      
+      // Update logout status on server if user exists
+      if (storedUser && storedUser.email) {
+        await fetch(`${API_BASE_URL}/api/user/logout`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email: storedUser.email })
+        }).catch(err => console.error('Logout API error:', err));
+      }
+    } catch (error) {
+      console.error('Logout error:', error);
+    } finally {
+      localStorage.removeItem('user');
+      setUser(null);
+      navigate('/login', { replace: true });
+    }
   };
 
   return (

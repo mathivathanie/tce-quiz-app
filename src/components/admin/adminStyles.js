@@ -539,6 +539,16 @@ export const adminStyles = {
     marginTop: '20px'
   },
 
+  // Table styles
+  tableHeaderCell: {
+    border: '1px solid rgba(255, 255, 255, 0.2)',
+    padding: '12px',
+    textAlign: 'left',
+    fontWeight: '600',
+    color: 'white',
+    fontSize: '14px'
+  },
+
   // Confirmation modal
   confirmModal: {
     position: 'fixed',

@@ -12,6 +12,11 @@ const ProtectedRoute = ({ children, role }) => {
     return <Navigate to="/login" replace />;
   }
 
+  // Don't show LogoutButton for SuperAdmin (it has its own)
+  if (role === 'superadmin') {
+    return <div>{children}</div>;
+  }
+
   return (
     <div>
       <LogoutButton />
