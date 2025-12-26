@@ -1,9 +1,12 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
-import { styles } from '../common/styles';
-import LoadingError from '../common/LoadingError';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
-import QuestionNavigation from '../common/QuestionNavigation';
+import CodeEntry from './CodeEntry';
+import StudentForm from './StudentForm';
+import QuizView from './QuizView';
+import ResultView from './ResultView';
+import WaitingForAdmin from './WaitingForAdmin';
+import { shuffleArray, apiCall, checkAndHandleViolation, openFullscreen, exitFullscreen } from './studentUtils';
 
 const Student = () => {
   const LOCAL_STORAGE_KEY = 'quizInProgress';
@@ -33,74 +36,27 @@ const Student = () => {
   
   const API_BASE_URL = 'http://localhost:3001';
 
-  // Helper function to convert between display numbers (1,2,3,4) and backend letters (A,B,C,D)
-  const numberToLetter = (number) => {
-    const mapping = { '1': 'A', '2': 'B', '3': 'C', '4': 'D' };
-    return mapping[number] || number;
+  const handleCheckAndHandleViolation = async (studentName, regNo, sessionId) => {
+    return await checkAndHandleViolation(
+      studentName,
+      regNo,
+      sessionId,
+      API_BASE_URL,
+      setLoading,
+      setError,
+      setViolationId,
+      setStudentView,
+      setSuspensionMessage
+    );
   };
 
-  const letterToNumber = (letter) => {
-    const mapping = { 'A': '1', 'B': '2', 'C': '3', 'D': '4' };
-    return mapping[letter] || letter;
+  const handleApiCall = async (endpoint, method = 'GET', data = null) => {
+    return await apiCall(endpoint, method, data, API_BASE_URL, setLoading, setError);
   };
-
-  const checkAndHandleViolation = async (studentName, regNo, sessionId) => {
-    try {
-      const response = await apiCall('/api/quiz-violations/check-pending', 'POST', { 
-        studentName, 
-        regNo, 
-        sessionId 
-      });
-      
-      if (response.hasPendingViolation) {
-        setViolationId(response.violationId);
-        setStudentView('waitingForAdmin');
-        setSuspensionMessage(
-          `Your quiz was suspended due to ${response.violationType.replace('_', ' ')}.\n\nPlease wait for your instructor to approve your quiz continuation.`
-        );
-        return true;
-      }
-      return false;
-    } catch (error) {
-      console.error('Error checking pending violation:', error);
-      return false;
-    }
-  };
-
-  const apiCall = async (endpoint, method = 'GET', data = null) => {
-    setLoading(true);
-    setError('');
-    try {
-      const config = {
-        method,
-        headers: { 'Content-Type': 'application/json' },
-      };
-      if (data) config.body = JSON.stringify(data);
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, config);
-      if (!response.ok) throw new Error(`HTTP error! status: ${response.status}`);
-      const result = await response.json();
-      setLoading(false);
-      return result;
-    } catch (error) {
-      setLoading(false);
-      setError(error.message);
-      console.error('API Error:', error);
-      throw error;
-    }
-  };
-
-  function shuffleArray(array) {
-    const newArray = [...array];
-    for (let i = newArray.length - 1; i > 0; i--) {
-      const j = Math.floor(Math.random() * (i + 1));
-      [newArray[i], newArray[j]] = [newArray[j], newArray[i]];
-    }
-    return newArray;
-  }
 
   const handleJoinQuiz = async () => {
     try {
-      const quiz = await apiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
+      const quiz = await handleApiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
       if (quiz) {
         if (quiz.isActive && quiz.questions.length > 0) {
           const shuffledQuestions = shuffleArray(quiz.questions).map((q) => {
@@ -147,7 +103,7 @@ const Student = () => {
       return;
     }
     
-    const hasViolation = await checkAndHandleViolation(
+    const hasViolation = await handleCheckAndHandleViolation(
       studentInfo.name, 
       studentInfo.regNo, 
       currentQuiz.sessionId
@@ -223,7 +179,7 @@ const Student = () => {
             tabSwitchCount,
             timeSpent: originalTimeAllotted - timeLeft,
           };
-          const response = await apiCall('/api/quiz-violations', 'POST', violationData);
+          const response = await handleApiCall('/api/quiz-violations', 'POST', violationData);
           setViolationId(response.violationId);
           setStudentView('waitingForAdmin');
           setSuspensionMessage(`Your quiz has been suspended due to ${violationType.replace('_', ' ')}.\n\nPlease contact your instructor for assistance.`);
@@ -242,7 +198,7 @@ const Student = () => {
             isResumed: isResuming,
             timeSpent: originalTimeAllotted - timeLeft,
           };
-          await apiCall('/api/quiz-results', 'POST', resultData);
+          await handleApiCall('/api/quiz-results', 'POST', resultData);
           exitFullscreen();
           localStorage.removeItem(LOCAL_STORAGE_KEY);
           setStudentView('result');
@@ -273,37 +229,13 @@ const Student = () => {
     setTabSwitchCount(0);
   };
 
-  const formatTime = (seconds) => {
-    const minutes = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${minutes.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const calculateStudentResults = () => {
-    if (!currentQuiz) return { correctAnswers: 0, wrongAnswers: 0, scorePercentage: 0, grade: 'F' };
-    const correctAnswers = userAnswers.reduce((count, answer, index) => {
-      return answer === currentQuiz.questions[index].correct ? count + 1 : count;
-    }, 0);
-    const totalQuestions = currentQuiz.questions.length;
-    const wrongAnswers = totalQuestions - correctAnswers;
-    const scorePercentage = Math.round((correctAnswers / totalQuestions) * 100);
-    let grade;
-    if (scorePercentage >= 90) grade = 'A+';
-    else if (scorePercentage >= 80) grade = 'A';
-    else if (scorePercentage >= 70) grade = 'B';
-    else if (scorePercentage >= 60) grade = 'C';
-    else if (scorePercentage >= 50) grade = 'D';
-    else grade = 'F';
-    return { correctAnswers, wrongAnswers, scorePercentage, grade };
-  };
-
   const handleResumeQuiz = async () => {
     if (!violationId) {
       toast.info('Waiting for admin approval...');
       return;
     }
     try {
-      const response = await apiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
+      const response = await handleApiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
       if (response.success) {
         try {
           const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, {
@@ -357,7 +289,7 @@ const Student = () => {
   const tryAutoResume = useCallback(async () => {
     if (!violationId || studentView !== 'waitingForAdmin') return;
     try {
-      const response = await apiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
+      const response = await handleApiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
       if (!response?.success) return;
       try {
         const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, {
@@ -407,7 +339,7 @@ const Student = () => {
 
   const checkPendingResume = async (studentName, regNo, sessionId) => {
     try {
-      const response = await apiCall('/api/quiz-violations/check-pending', 'POST', { studentName, regNo, sessionId });
+      const response = await handleApiCall('/api/quiz-violations/check-pending', 'POST', { studentName, regNo, sessionId });
       if (response.hasPendingViolation) {
         setViolationId(response.violationId);
         setStudentView('waitingForAdmin');
@@ -423,31 +355,6 @@ const Student = () => {
     } catch (error) {
       console.error('Error checking pending resume:', error);
       return false;
-    }
-  };
-
-  const openFullscreen = () => {
-    const elem = document.documentElement;
-    if (elem.requestFullscreen) {
-      elem.requestFullscreen();
-    } else if (elem.mozRequestFullScreen) {
-      elem.mozRequestFullScreen();
-    } else if (elem.webkitRequestFullscreen) {
-      elem.webkitRequestFullscreen();
-    } else if (elem.msRequestFullscreen) {
-      elem.msRequestFullscreen();
-    }
-  };
-
-  const exitFullscreen = () => {
-    if (document.exitFullscreen) {
-      document.exitFullscreen();
-    } else if (document.mozCancelFullScreen) {
-      document.mozCancelFullScreen();
-    } else if (document.webkitExitFullscreen) {
-      document.webkitExitFullscreen();
-    } else if (document.msExitFullscreen) {
-      document.msExitFullscreen();
     }
   };
 
@@ -489,7 +396,7 @@ const Student = () => {
         const data = JSON.parse(saved);
         
         if (data.studentInfo && data.quizData) {
-          checkAndHandleViolation(
+          handleCheckAndHandleViolation(
             data.studentInfo.name,
             data.studentInfo.regNo,
             data.quizData.sessionId
@@ -561,7 +468,7 @@ const Student = () => {
         currentQuiz) {
       
       const timeoutId = setTimeout(() => {
-        checkAndHandleViolation(
+        handleCheckAndHandleViolation(
           studentInfo.name,
           studentInfo.regNo,
           currentQuiz.sessionId
@@ -681,464 +588,84 @@ const Student = () => {
     }
   }, [studentView, currentQuiz, studentInfo, userAnswers, timeLeft, currentQuestion, originalTimeAllotted, isResuming]);
 
-  // Render functions...
+  // Render views based on studentView state
   if (studentView === 'codeEntry') {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <ToastContainer />
-          <LoadingError loading={loading} error={error} />
-          {loggedInUser && (
-            <div style={{
-              textAlign: 'right',
-              marginBottom: '15px',
-              padding: '10px',
-              background: 'rgba(102, 126, 234, 0.1)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#667eea',
-              fontWeight: '500'
-            }}>
-              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
-            </div>
-          )}
-          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <h2>Join a Quiz</h2>
-            <p style={{ color: '#666' }}>Enter the quiz code provided by your instructor</p>
-          </div>
-          <input
-            type="text"
-            placeholder="Enter quiz code"
-            value={quizCode}
-            onChange={(e) => setQuizCode(e.target.value)}
-            style={styles.input}
-            onKeyPress={(e) => e.key === 'Enter' && handleJoinQuiz()}
-            disabled={loading}
-          />
-          <div style={{ textAlign: 'center' }}>
-            <button style={styles.button} onClick={handleJoinQuiz} disabled={loading}>
-              {loading ? 'Joining...' : 'Join Quiz'}
-            </button>
-          </div>
-        </div>
-      </div>
+      <CodeEntry
+        loading={loading}
+        error={error}
+        quizCode={quizCode}
+        setQuizCode={setQuizCode}
+        handleJoinQuiz={handleJoinQuiz}
+        loggedInUser={loggedInUser}
+      />
     );
   }
 
   if (studentView === 'form') {
     return (
-      <div style={styles.container}>
-        <div style={styles.card}>
-          <ToastContainer />
-          <LoadingError loading={loading} error={error} />
-          {loggedInUser && (
-            <div style={{
-              textAlign: 'right',
-              marginBottom: '15px',
-              padding: '10px',
-              background: 'rgba(102, 126, 234, 0.1)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#667eea',
-              fontWeight: '500'
-            }}>
-              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
-            </div>
-          )}
-          <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-            <button style={{...styles.button, marginBottom: '20px'}} onClick={() => setStudentView('codeEntry')} disabled={loading}>
-              ← Back
-            </button>
-            <h2>Student Information</h2>
-            <p style={{ color: '#666' }}>Quiz: {currentQuiz?.name}</p>
-            <p style={{ color: '#666' }}>Questions: {currentQuiz?.questions?.length || 0} | Time: 90 minutes</p>
-          </div>
-          
-          <input
-            type="text"
-            placeholder="Full Name"
-            value={studentInfo.name}
-            onChange={(e) => setStudentInfo({ ...studentInfo, name: e.target.value })}
-            style={styles.input}
-          />
-          <input
-            type="text"
-            placeholder="Register Number"
-            value={studentInfo.regNo}
-            onChange={(e) => setStudentInfo({ ...studentInfo, regNo: e.target.value })}
-            style={styles.input}
-          />
-          <select
-            value={studentInfo.department}
-            onChange={(e) => setStudentInfo({ ...studentInfo, department: e.target.value })}
-            style={styles.select}
-          >
-              <option value="">Select Department *</option>
-<option value="Civil">Civil Engineering</option>
-<option value="Mechanical">Mechanical Engineering</option>
-<option value="EEE">Electrical and Electronics Engineering</option>
-<option value="ECE">Electronics and Communication Engineering</option>
-<option value="CSE">Computer Science Engineering</option>
-<option value="CSE AIML">CSE - Artificial Intelligence and Machine Learning</option>
-<option value="IT">Information Technology</option>
-<option value="Mechatronics">Mechatronics</option>
-<option value="AMCS">Applied Mathematics and Computational Sciences</option>
-<option value="CSBS">Computer Science and Business Systems</option>
-<option value="TSEDA">Architecture,Design,Planning</option>
-  <option value="other">Other</option>
-              </select>
-<select
-            value={studentInfo.section}
-            onChange={(e) => setStudentInfo({ ...studentInfo, section: e.target.value })}
-            style={styles.select}
-          >
-            <option value="">Select Section *</option>
-<option value="A">A</option>
-<option value="B">B</option>
-<option value="C">C</option>
-<option value="D">D</option>
-<option value="Other">Other</option>
-          </select>
-          <div style={{ textAlign: 'center', marginTop: '30px' }}>
-                <button style={styles.button} onClick={startStudentQuiz} disabled={loading}>
-                  {loading ? 'Starting...' : 'Start Quiz'}
-                </button>
-              </div>
-
-<div style={{ marginTop: '20px', padding: '15px', background: '#fff3cd', borderRadius: '8px', border: '1px solid #ffeaa7' }}>
-                <strong style={{ color: '#856404' }}>⚠️ Important Instructions:</strong>
-                <ul style={{ margin: '10px 0', paddingLeft: '20px', color: '#856404' }}>
-                  <li>Do not refresh, minimize, resize, or switch tabs during the quiz.</li>
-    <li>Any attempt to switch tabs, copy content, or navigate away will result in immediate termination and auto-submission of the quiz.</li>
-    <li>You are allotted 90 minutes to complete the quiz.</li>
-    <li>All fields must be filled before starting the quiz.</li>
-                </ul>
-              </div> 
-
-        </div>
-      </div>
+      <StudentForm
+        loading={loading}
+        error={error}
+        currentQuiz={currentQuiz}
+        studentInfo={studentInfo}
+        setStudentInfo={setStudentInfo}
+        startStudentQuiz={startStudentQuiz}
+        setStudentView={setStudentView}
+        loggedInUser={loggedInUser}
+      />
     );
   }
 
   if (studentView === 'quiz') {
-    const question = currentQuiz.questions[currentQuestion];
-    const progress = ((currentQuestion + 1) / currentQuiz.questions.length) * 100;
-
-    // Calculate answered questions (0-based index)
-    const answeredQuestions = userAnswers
-      .map((ans, idx) => (ans !== null ? idx : null))
-      .filter((v) => v !== null);
-
     return (
-      <div style={styles.container}>
-        <ToastContainer />
-        {showWarning && <div style={styles.warningBanner}>{warningMessage}</div>}
-        <div style={styles.card}>
-          {loggedInUser && (
-            <div style={{
-              textAlign: 'right',
-              marginBottom: '15px',
-              padding: '10px',
-              background: 'rgba(102, 126, 234, 0.1)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#667eea',
-              fontWeight: '500'
-            }}>
-              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
-            </div>
-          )}
-          <div style={styles.timer}>{formatTime(timeLeft)}</div>
-          <div style={styles.progressBar}>
-            <div style={styles.progressFill(progress)}></div>
-          </div>
-          {currentQuiz?.audioUrl && (
-      <div style={{ marginBottom: '20px' }}>
-        <audio controls src={currentQuiz.audioUrl} style={{ width: '100%' }} />
-      </div>
-    )}
-
-          <div style={styles.questionCard}>
-            <h3>
-              Question {currentQuestion + 1} of {currentQuiz.questions.length}
-            </h3>
-              {question.questionType === 'image' && question.imageUrl && (
-    <div style={{ textAlign: 'center', margin: '20px 0' }}>
-      <img 
-        src={`${API_BASE_URL}${question.imageUrl}`}
-        alt="Question"
-        style={{ 
-          maxWidth: '100%', 
-          maxHeight: '400px', 
-          borderRadius: '8px',
-          border: '1px solid #ddd',
-          boxShadow: '0 2px 8px rgba(0,0,0,0.1)'
-        }}
-        onError={(e) => {
-          e.target.style.display = 'none';
-          toast.error('Failed to load question image');
-        }}
+      <QuizView
+        currentQuiz={currentQuiz}
+        currentQuestion={currentQuestion}
+        userAnswers={userAnswers}
+        timeLeft={timeLeft}
+        selectOption={selectOption}
+        nextQuestion={nextQuestion}
+        previousQuestion={previousQuestion}
+        showWarning={showWarning}
+        warningMessage={warningMessage}
+        loggedInUser={loggedInUser}
+        API_BASE_URL={API_BASE_URL}
+        selectedPassage={selectedPassage}
+        setSelectedPassage={setSelectedPassage}
+        showPassageModal={showPassageModal}
+        setShowPassageModal={setShowPassageModal}
+        audioRef={audioRef}
+        isAudioPlaying={isAudioPlaying}
+        setIsAudioPlaying={setIsAudioPlaying}
+        setCurrentQuestion={setCurrentQuestion}
       />
-    </div>
-  )}
-             {question.question && <p>{question.question}</p>}
-          </div>
-
-          {currentQuiz.hasAudio && (
-            <div style={styles.audioPlayer}>
-              <audio
-                ref={audioRef}
-                src={`${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio`}
-                onPlay={() => setIsAudioPlaying(true)}
-                onPause={() => setIsAudioPlaying(false)}
-                controls
-              />
-            </div>
-          )}
-
-          {currentQuiz.passages && currentQuiz.passages.length > 0 && (
-            <div>
-              {currentQuiz.passages.map((passage) => (
-                <button
-                  key={passage._id}
-                  style={styles.passageButton}
-                  onClick={() => {
-                    setSelectedPassage(passage);
-                    setShowPassageModal(true);
-                  }}
-                >
-                  View Passage: {passage.title}
-                </button>
-              ))}
-            </div>
-          )}
-
-          <div>
-            {Object.entries(question.options).map(([key, value], index) => {
-              // Convert the stored answer (A,B,C,D) to display number (1,2,3,4) for comparison
-              const displayNumber = (index + 1).toString();
-              const isSelected = userAnswers[currentQuestion] === key.toUpperCase();
-              
-              return (
-                <div
-                  key={key}
-                  style={styles.option(isSelected)}
-                  onClick={() => selectOption(index)}
-                >
-                  {displayNumber}: {value}
-                </div>
-              );
-            })}
-          </div>
-
-          <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
-            <button style={styles.button} onClick={previousQuestion} disabled={currentQuestion === 0}>
-              ← Previous
-            </button>
-            <button style={styles.button} onClick={nextQuestion}>
-              {currentQuestion === currentQuiz.questions.length - 1 ? 'Submit' : 'Next →'}
-            </button>
-          </div>
-        </div>
-
-        {/* Footer Navigation Panel */}
-        <QuestionNavigation
-          totalQuestions={currentQuiz.questions.length}
-          answeredQuestions={answeredQuestions}
-          currentQuestion={currentQuestion}
-          onNavigate={setCurrentQuestion}
-        />
-
-        {showPassageModal && selectedPassage && (
-          <div style={styles.passageModal}>
-            <div style={styles.passageContent}>
-              <button onClick={() => setShowPassageModal(false)} style={{ float: 'right' }}>
-                Close
-              </button>
-              <h3>{selectedPassage.title}</h3>
-              <p style={{ whiteSpace: 'pre-wrap' }}>{selectedPassage.content}</p>
-            </div>
-          </div>
-        )}
-      </div>
     );
   }
 
   if (studentView === 'result') {
-    const { scorePercentage } = calculateStudentResults();
     return (
-      <div style={styles.container}>
-        <ToastContainer />
-        <div style={{ ...styles.card, display: 'flex', justifyContent: 'center', alignItems: 'center', minHeight: '60vh', position: 'relative' }}>
-          {loggedInUser && (
-            <div style={{
-              position: 'absolute',
-              top: '20px',
-              right: '20px',
-              padding: '10px',
-              background: 'rgba(102, 126, 234, 0.1)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#667eea',
-              fontWeight: '500'
-            }}>
-              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
-            </div>
-          )}
-          <div style={{
-            ...styles.resultCard,
-            animation: 'popIn 0.7s cubic-bezier(0.23, 1, 0.32, 1)',
-            boxShadow: '0 8px 32px rgba(102,126,234,0.15)',
-            maxWidth: 350,
-            width: '100%'
-          }}>
-            <h2>Quiz Submitted</h2>
-            <div style={{
-              marginTop: 32,
-              display: 'flex',
-              justifyContent: 'center',
-              alignItems: 'center',
-              gap: 24,
-              fontSize: 17,
-              color: '#333',
-              fontWeight: 500,
-              textAlign: 'center',
-              background: 'rgba(245,247,250,0.85)',
-              borderRadius: 16,
-              padding: '12px 18px',
-              boxShadow: '0 2px 8px rgba(102,126,234,0.07)'
-            }}>
-              <div><span style={{ color: '#667eea', fontWeight: 700 }}>Name:</span> {studentInfo.name}</div>
-              <div style={{ borderLeft: '1.5px solid #e0e0e0', height: 24 }}></div>
-              <div><span style={{ color: '#667eea', fontWeight: 700 }}>Reg No:</span> {studentInfo.regNo}</div>
-              <div style={{ borderLeft: '1.5px solid #e0e0e0', height: 24 }}></div>
-              <div><span style={{ color: '#667eea', fontWeight: 700 }}>Dept:</span> {studentInfo.department}</div>
-              <div><span style={{ color: '#667eea', fontWeight: 700 }}>Sec:</span> {studentInfo.section}</div>
-            </div>
-          </div>
-        </div>
-        <div style={styles.footerBlack}>
-  {/* Floating background elements */}
-  <div style={styles.footerOverlay}></div>
-  <div style={styles.footerShape1}></div>
-  <div style={styles.footerShape2}></div>
-  <div style={styles.footerShape3}></div>
-  
-  <div style={styles.footerThreeColumns}>
-    
-    <div style={styles.footerLeftColumn}>
-      <div style={{...styles.footerHeading, position: 'relative'}}>
-        Developed By
-        <div style={styles.footerHeadingUnderline}></div>
-      </div>
-      <div style={styles.developerName}>
-        <div style={styles.developerNameShimmer}></div>
-        MATHIVATHANI E -IT
-      </div>
-      <div style={styles.developerName}>
-        <div style={styles.developerNameShimmer}></div>
-        ROSHINI M -IT
-      </div>
-      <div style={styles.developerName}>
-        <div style={styles.developerNameShimmer}></div>
-        SHANMATHI N -IT
-      </div>
-      <div style={styles.developerName}>
-        <div style={styles.developerNameShimmer}></div>
-        HARINI R -IT
-      </div>
-      <div style={styles.developerName}>
-        <div style={styles.developerNameShimmer}></div>
-        SANCHANA R -IT
-      </div>
-    </div>
-
-    <div style={styles.footerCenterColumn}>
-      <div style={{...styles.footerHeading, position: 'relative'}}>
-        HEAD OF THE DEPARTMENT
-        <div style={styles.footerHeadingUnderline}></div>
-      </div>
-      <div style={styles.departmentHead}>Dr.C.DEISY</div>
-    </div>
-
-    <div style={styles.footerRightColumn}>
-      <div style={{...styles.footerHeading, position: 'relative'}}>
-        Under the guidance of
-        <div style={styles.footerHeadingUnderline}></div>
-      </div>
-      <div style={styles.guidanceInfo}>Department of Information Technology</div>
-      <div style={styles.guidanceInfo}>C.V. NISHA ANGELINE</div>
-    </div>
-
-  </div>
-</div>
-
-{/* Add the CSS animations */}
-<style>{`
-  @keyframes gradientShift {
-    0% { background-position: 0% 50%; }
-    50% { background-position: 100% 50%; }
-    100% { background-position: 0% 50%; }
-  }
-
-  @keyframes float {
-    0%, 100% { transform: translateY(0px); }
-    50% { transform: translateY(-20px); }
-  }
-
-  @keyframes rotate {
-    from { transform: translate(-50%, -50%) rotate(0deg); }
-    to { transform: translate(-50%, -50%) rotate(360deg); }
-  }
-
-  @keyframes glow {
-    from { box-shadow: 0 2px 8px rgba(255,255,255,0.4); }
-    to { box-shadow: 0 2px 20px rgba(255,255,255,0.8); }
-  }
-
-  @keyframes floatPattern {
-    from { transform: translateX(0); }
-    to { transform: translateX(60px); }
-  }
-
-  @keyframes popIn {
-    0% { opacity: 0; transform: scale(0.7); }
-    60% { opacity: 1; transform: scale(1.05); }
-    100% { opacity: 1; transform: scale(1); }
-  }
-`}</style>
-      </div>
+      <ResultView
+        currentQuiz={currentQuiz}
+        userAnswers={userAnswers}
+        studentInfo={studentInfo}
+        loggedInUser={loggedInUser}
+      />
     );
   }
 
   if (studentView === 'waitingForAdmin') {
     return (
-      <div style={styles.container}>
-        <div style={styles.waitingCard}>
-          <ToastContainer />
-          {loggedInUser && (
-            <div style={{
-              textAlign: 'right',
-              marginBottom: '15px',
-              padding: '10px',
-              background: 'rgba(102, 126, 234, 0.1)',
-              borderRadius: '8px',
-              fontSize: '14px',
-              color: '#667eea',
-              fontWeight: '500'
-            }}>
-              Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
-            </div>
-          )}
-          <h2>Quiz Suspended</h2>
-          <p>{suspensionMessage}</p>
-          <button style={styles.button} onClick={handleResumeQuiz} disabled={loading}>
-              {loading ? 'Checking...' : 'Check for Approval'}
-          </button>
-        </div>
-      </div>
+      <WaitingForAdmin
+        loading={loading}
+        suspensionMessage={suspensionMessage}
+        handleResumeQuiz={handleResumeQuiz}
+        loggedInUser={loggedInUser}
+      />
     );
   }
+
   return null;
 };
+
 export default Student;

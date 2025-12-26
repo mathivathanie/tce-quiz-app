@@ -8,6 +8,7 @@ import CreateQuiz from './CreateQuiz';
 import ManageSessions from './ManageSessions';
 import ViewResults from './ViewResults';
 import Violations from './Violations';
+import LogoutButton from '../LogoutButton';
 
 const Admin = () => {
   const navigate = useNavigate();
@@ -243,24 +244,31 @@ const handleCreateSession = async () => {
       <div style={{ maxWidth: '1200px', margin: '0 auto' }}>
         <ToastContainer />
         <LoadingError loading={loading} error={error} />
-        {user && user.email && (
-          <div style={{
-            position: 'absolute',
-            top: '20px',
-            right: '20px',
-            padding: '10px 15px',
-            background: 'rgba(102, 126, 234, 0.2)',
-            backdropFilter: 'blur(10px)',
-            borderRadius: '8px',
-            fontSize: '14px',
-            color: '#bb86fc',
-            fontWeight: '500',
-            border: '1px solid rgba(187, 134, 252, 0.3)',
-            zIndex: 10
-          }}>
-            Logged in as: <span style={{ fontWeight: '600' }}>{user.email}</span>
-          </div>
-        )}
+        <div style={{
+          position: 'absolute',
+          top: '20px',
+          right: '20px',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '15px',
+          zIndex: 10
+        }}>
+          {user && user.email && (
+            <div style={{
+              padding: '10px 15px',
+              background: 'rgba(102, 126, 234, 0.2)',
+              backdropFilter: 'blur(10px)',
+              borderRadius: '8px',
+              fontSize: '14px',
+              color: '#bb86fc',
+              fontWeight: '500',
+              border: '1px solid rgba(187, 134, 252, 0.3)'
+            }}>
+              Logged in as: <span style={{ fontWeight: '600' }}>{user.email}</span>
+            </div>
+          )}
+          <LogoutButton />
+        </div>
         
         {/* Header */}
         <div style={{ textAlign: 'center', marginBottom: '50px' }}>
