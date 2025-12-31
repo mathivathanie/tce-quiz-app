@@ -252,6 +252,10 @@ const quizViolationSchema = new mongoose.Schema({
     type: String,
     enum: ['A', 'B', 'C', 'D', null]
   }],
+   shuffledQuestions: {
+    type: Array,
+    default: []
+  },
   timeLeft: {
     type: Number,
     required: true
@@ -1513,6 +1517,7 @@ app.post('/api/quiz-violations', async (req, res) => {
       violationType,
       currentQuestion,
       userAnswers,
+       shuffledQuestions,
       timeLeft,
       timeSpent,
       tabSwitchCount
@@ -1543,6 +1548,7 @@ app.post('/api/quiz-violations', async (req, res) => {
       violationType,
       currentQuestion,
       userAnswers,
+       shuffledQuestions: shuffledQuestions || [],
       timeLeft,
       timeSpent: timeSpent || 0,
       tabSwitchCount: tabSwitchCount || 0
@@ -1757,16 +1763,23 @@ app.post('/api/quiz-violations/:violationId/continue', async (req, res) => {
       return res.status(400).json({ message: 'Admin approval not granted yet' });
     }
 
-    // Mark resolved now that student is continuing
+    if (violation.adminAction === 'resume_approved') {
+      // ⭐ USE SHUFFLED QUESTIONS IF AVAILABLE
+      const quizDataToSend = { ...session.toObject() };
+      
+      if (violation.shuffledQuestions && violation.shuffledQuestions.length > 0) {
+        quizDataToSend.questions = violation.shuffledQuestions;
+      }
+        // Mark resolved now that student is continuing
     violation.isResolved = true;
     violation.resolvedAt = new Date();
     await violation.save();
-
-    if (violation.adminAction === 'resume_approved') {
+      
       return res.json({
         success: true,
         actionType: 'resume',
-        quizData: session,
+        quizData: quizDataToSend,
+         shuffledQuestions: violation.shuffledQuestions,
         studentInfo: {
           name: violation.studentName,
           regNo: violation.regNo,
@@ -1779,11 +1792,16 @@ app.post('/api/quiz-violations/:violationId/continue', async (req, res) => {
       });
     }
 
-    if (violation.adminAction === 'restart_approved') {
+    if (violation.adminAction === 'restart_approved') 
+      violation.isResolved = true;
+violation.resolvedAt = new Date();
+await violation.save();
+      {
       return res.json({
         success: true,
         actionType: 'restart',
         quizData: session,
+        shuffledQuestions: null,
         studentInfo: {
           name: violation.studentName,
           regNo: violation.regNo,
@@ -1797,6 +1815,7 @@ app.post('/api/quiz-violations/:violationId/continue', async (req, res) => {
     res.status(500).json({ message: 'Error continuing quiz', error: error.message });
   }
 });
+
 // POST /api/quiz-violations/check-pending
 app.post('/api/quiz-violations/check-pending', async (req, res) => {
   try {

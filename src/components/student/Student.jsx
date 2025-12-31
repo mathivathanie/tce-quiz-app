@@ -59,33 +59,41 @@ const Student = () => {
       const quiz = await handleApiCall(`/api/quiz-sessions/${quizCode.toUpperCase()}`);
       if (quiz) {
         if (quiz.isActive && quiz.questions.length > 0) {
-          const shuffledQuestions = shuffleArray(quiz.questions).map((q) => {
-            const optionsArray = [
-              { label: 'A', text: q.options.a },
-              { label: 'B', text: q.options.b },
-              { label: 'C', text: q.options.c },
-              { label: 'D', text: q.options.d },
-            ];
-            const shuffledOptions = shuffleArray(optionsArray);
-            const newOptions = {};
-            let newCorrect = '';
-            shuffledOptions.forEach((opt, idx) => {
-              const label = ['a', 'b', 'c', 'd'][idx];
-              newOptions[label] = opt.text;
-              if (opt.label === q.correct) {
-                newCorrect = label.toUpperCase();
-              }
-            });
-            return { ...q, options: newOptions, correct: newCorrect };
-          });
+           let finalQuestions =
+    quiz.shuffledQuestions && quiz.shuffledQuestions.length > 0
+      ? quiz.shuffledQuestions
+      : null;
 
+  // ✅ STEP 2: shuffle ONLY if first attempt
+  if (!finalQuestions) {
+    finalQuestions = shuffleArray(quiz.questions).map((q) => {
+      const optionsArray = [
+        { label: 'A', text: q.options.a },
+        { label: 'B', text: q.options.b },
+        { label: 'C', text: q.options.c },
+        { label: 'D', text: q.options.d },
+      ];
+
+      const shuffledOptions = shuffleArray(optionsArray);
+      const newOptions = {};
+      let newCorrect = '';
+
+      shuffledOptions.forEach((opt, idx) => {
+        const label = ['a', 'b', 'c', 'd'][idx];
+        newOptions[label] = opt.text;
+        if (opt.label === q.correct) newCorrect = label.toUpperCase();
+      });
+
+      return { ...q, options: newOptions, correct: newCorrect };
+    });
+  }
           if (quiz.audioFiles && quiz.audioFiles.length > 0) {
             quiz.audioUrl = `${API_BASE_URL}${quiz.audioFiles[0].path}`;
           }
 
-          setCurrentQuiz({ ...quiz, questions: shuffledQuestions });
-          setStudentView('form');
-          setUserAnswers(new Array(shuffledQuestions.length).fill(null));
+          setCurrentQuiz({ ...quiz, questions: finalQuestions });
+  setStudentView('form');
+  setUserAnswers(new Array(finalQuestions.length).fill(null));
         } else if (!quiz.isActive) {
           toast.info('This quiz is not currently active. Please contact your instructor.');
         } else {
@@ -173,6 +181,7 @@ const Student = () => {
             department: studentInfo.department,
             section: studentInfo.section,
             currentQuestion,
+            shuffledQuestions: currentQuiz.questions,
             userAnswers,
             timeLeft,
             violationType,
@@ -229,7 +238,7 @@ const Student = () => {
     setTabSwitchCount(0);
   };
 
-  const handleResumeQuiz = async () => {
+  /*const handleResumeQuiz = async () => {
     if (!violationId) {
       toast.info('Waiting for admin approval...');
       return;
@@ -284,6 +293,93 @@ const Student = () => {
     } catch (error) {
       toast.error(error?.message || 'Approval not ready yet.');
     }
+  };*/
+  const handleResumeQuiz = async () => {
+    if (!violationId) {
+      toast.info('Waiting for admin approval...');
+      return;
+    }
+    try {
+      const response = await apiCall(`/api/quiz-violations/${violationId}/continue`, 'POST');
+      if (response.success) {
+        try {
+          const audioResponse = await fetch(`${API_BASE_URL}/api/quiz-sessions/${response.quizData.sessionId}/audio`, {
+            method: 'HEAD',
+            headers: { Accept: 'audio/*' },
+          });
+          response.quizData.hasAudio = audioResponse.ok && audioResponse.status === 200;
+        } catch (e) {
+          response.quizData.hasAudio = false;
+        }
+        if (response.actionType === 'resume') {
+          //USE SHUFFLED QUESTIONS FROM BACKEND RESPONSE
+        if (response.shuffledQuestions && response.shuffledQuestions.length > 0) {
+          response.quizData.questions = response.shuffledQuestions;
+        }
+          if (response.quizData.audioFiles && response.quizData.audioFiles.length > 0) {
+            const audioPath = response.quizData.audioFiles[0].path.startsWith('/')
+              ? response.quizData.audioFiles[0].path
+              : '/' + response.quizData.audioFiles[0].path;
+            response.quizData.audioUrl = `${API_BASE_URL}${audioPath}`;
+          }
+          setCurrentQuiz(response.quizData);
+          setStudentInfo(response.studentInfo);
+          setCurrentQuestion(response.currentQuestion);
+          setUserAnswers(response.userAnswers);
+          setTimeLeft(response.timeLeft);
+          setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
+          setTabSwitchCount(0);
+          setIsResuming(true);
+          openFullscreen();
+          setStudentView('quiz');
+          toast.success('Quiz resumed successfully!');
+        } else if (response.actionType === 'restart') {
+          if (response.quizData.audioFiles && response.quizData.audioFiles.length > 0) {
+            const audioPath = response.quizData.audioFiles[0].path.startsWith('/')
+              ? response.quizData.audioFiles[0].path
+              : '/' + response.quizData.audioFiles[0].path;
+            response.quizData.audioUrl = `${API_BASE_URL}${audioPath}`;
+          }
+// Create brand new shuffle for restart
+        const newShuffledQuestions = shuffleArray(response.quizData.questions).map((q) => {
+          const optionsArray = [
+            { label: 'A', text: q.options.a },
+            { label: 'B', text: q.options.b },
+            { label: 'C', text: q.options.c },
+            { label: 'D', text: q.options.d },
+          ];
+
+          const shuffledOptions = shuffleArray(optionsArray);
+          const newOptions = {};
+          let newCorrect = '';
+
+          shuffledOptions.forEach((opt, idx) => {
+            const label = ['a', 'b', 'c', 'd'][idx];
+            newOptions[label] = opt.text;
+            if (opt.label === q.correct) newCorrect = label.toUpperCase();
+          });
+
+          return { ...q, options: newOptions, correct: newCorrect };
+        });
+        
+        response.quizData.questions = newShuffledQuestions;
+
+          setCurrentQuiz(response.quizData);
+          setStudentInfo(response.studentInfo);
+          setCurrentQuestion(0);
+          setUserAnswers(new Array(response.quizData.questions.length).fill(null));
+          setTimeLeft(response.quizData.timeLimit || 90 * 60);
+          setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
+          setTabSwitchCount(0);
+          setIsResuming(true);
+          openFullscreen();
+          setStudentView('quiz');
+          toast.success('Quiz restarted successfully!');
+        }
+      }
+    } catch (error) {
+      toast.error(error?.message || 'Approval not ready yet.');
+    }
   };
 
   const tryAutoResume = useCallback(async () => {
@@ -301,6 +397,10 @@ const Student = () => {
         response.quizData.hasAudio = false;
       }
       if (response.actionType === 'resume') {
+         //  USE SHUFFLED QUESTIONS FROM BACKEND
+      if (response.shuffledQuestions && response.shuffledQuestions.length > 0) {
+        response.quizData.questions = response.shuffledQuestions;
+      }
         if (response.quizData.audioFiles && response.quizData.audioFiles.length > 0) {
           const audioPath = response.quizData.audioFiles[0].path.startsWith('/')
             ? response.quizData.audioFiles[0].path
@@ -312,6 +412,7 @@ const Student = () => {
         setCurrentQuestion(response.currentQuestion);
         setUserAnswers(response.userAnswers);
         setTimeLeft(response.timeLeft);
+        setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
         setTabSwitchCount(0);
         setIsResuming(true);
         setStudentView('quiz');
@@ -322,6 +423,29 @@ const Student = () => {
             : '/' + response.quizData.audioFiles[0].path;
           response.quizData.audioUrl = `${API_BASE_URL}${audioPath}`;
         }
+         const newShuffledQuestions = shuffleArray(response.quizData.questions).map((q) => {
+        const optionsArray = [
+          { label: 'A', text: q.options.a },
+          { label: 'B', text: q.options.b },
+          { label: 'C', text: q.options.c },
+          { label: 'D', text: q.options.d },
+        ];
+
+        const shuffledOptions = shuffleArray(optionsArray);
+        const newOptions = {};
+        let newCorrect = '';
+
+        shuffledOptions.forEach((opt, idx) => {
+          const label = ['a', 'b', 'c', 'd'][idx];
+          newOptions[label] = opt.text;
+          if (opt.label === q.correct) newCorrect = label.toUpperCase();
+        });
+
+        return { ...q, options: newOptions, correct: newCorrect };
+      });
+      
+      response.quizData.questions = newShuffledQuestions;
+      
         setCurrentQuiz(response.quizData);
         setStudentInfo(response.studentInfo);
         setCurrentQuestion(0);
@@ -330,6 +454,7 @@ const Student = () => {
         setOriginalTimeAllotted(response.quizData.timeLimit || 90 * 60);
         setTabSwitchCount(0);
         setIsResuming(true);
+         openFullscreen();
         setStudentView('quiz');
       }
     } catch {
@@ -431,31 +556,12 @@ const Student = () => {
         e.preventDefault();
       }
     };
-    const handleFullscreenChange = () => {
-      if (
-        studentView === 'quiz' &&
-        !document.fullscreenElement &&
-        !document.webkitFullscreenElement &&
-        !document.mozFullScreenElement &&
-        !document.msFullscreenElement
-      ) {
-        submitQuiz(true, 'fullscreen_exit_violation');
-      }
-    };
 
-    document.addEventListener('fullscreenchange', handleFullscreenChange);
-    document.addEventListener('webkitfullscreenchange', handleFullscreenChange);
-    document.addEventListener('mozfullscreenchange', handleFullscreenChange);
-    document.addEventListener('MSFullscreenChange', handleFullscreenChange);
     document.addEventListener('contextmenu', handleContextMenu);
     document.addEventListener('keydown', handleKeyDown);
     return () => {
       document.removeEventListener('contextmenu', handleContextMenu);
       document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('fullscreenchange', handleFullscreenChange);
-      document.removeEventListener('webkitfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('mozfullscreenchange', handleFullscreenChange);
-      document.removeEventListener('MSFullscreenChange', handleFullscreenChange);
     };
   }, [studentView]);
 
