@@ -282,9 +282,9 @@ const handleCreateSession = async () => {
             justifyContent: 'center',
             gap: '15px'
           }}>
-            <span style={{ fontSize: '40px' }}>✨</span>
-            Admin Dashboard
-            <span style={{ fontSize: '40px' }}>🏆</span>
+            <span style={{ fontSize: '40px' }}></span>
+            Admin Gateway
+            <span style={{ fontSize: '40px' }}></span>
           </h1>
           
           <div style={{

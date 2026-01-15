@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { styles } from './common/styles';
+import { authStyles as styles, authAnimations } from './authStyles';
 import { ToastContainer, toast } from 'react-toastify';
 import 'react-toastify/dist/ReactToastify.css';
+
 const Auth = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
@@ -17,6 +18,23 @@ const Auth = () => {
     confirmPassword: '',
   });
   const [user, setUser] = useState(null);
+  const [focusedField, setFocusedField] = useState(null);
+  const [hoveredButton, setHoveredButton] = useState(null);
+
+  // Generate bubbles
+  const bubbles = Array.from({ length: 20 }, (_, i) => ({
+    delay: i * 0.5,
+    duration: 8 + Math.random() * 4,
+    left: i * 5,
+    size: 40 + Math.random() * 80
+  }));
+
+  // Generate particles
+  const particles = Array.from({ length: 30 }, (_, i) => ({
+    delay: i * 0.3,
+    left: i * 3.33,
+    duration: 3 + Math.random() * 2
+  }));
 
   useEffect(() => {
     const storedUser = localStorage.getItem("user");
@@ -32,6 +50,7 @@ const Auth = () => {
   }, [navigate]);
 
   const API_BASE_URL = 'http://localhost:3001';
+  
   const determineRoleFromEmail = (email) => {
     const domain = email.toLowerCase().split('@')[1];
     const facultyDomains = [
@@ -80,7 +99,6 @@ const Auth = () => {
         localStorage.setItem('user', JSON.stringify(response.user));
         setUser(response.user);
 
-        // Navigate based on role
         if (response.user.role === 'admin') {
           navigate('/admin', { replace: true });
         } else {
@@ -124,127 +142,203 @@ const Auth = () => {
     }
   };
 
-  const handleLogout = () => {
-    localStorage.removeItem('user');
-    setUser(null);
-    navigate('/login', { replace: true });
-  };
-
   return (
     <div style={styles.container}>
+      {/* Floating Bubbles */}
+      <div style={styles.bubbleContainer}>
+        {bubbles.map((bubble, i) => (
+          <div key={`bubble-${i}`} style={styles.bubble(bubble.delay, bubble.duration, bubble.left, bubble.size)} />
+        ))}
+      </div>
+
+      {/* Falling Particles */}
+      <div style={styles.particleContainer}>
+        {particles.map((particle, i) => (
+          <div key={`particle-${i}`} style={styles.particle(particle.delay, particle.left, particle.duration)} />
+        ))}
+      </div>
+
       <div style={styles.card}>
         <ToastContainer />
+        
+        {/* Decorative circles */}
+        <div style={styles.decorCircle1}></div>
+        <div style={styles.decorCircle2}></div>
+
         {/* Header */}
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
+        <div style={styles.logoContainer}>
           <img
             src="/logo.png"
             alt="TCE Logo"
-            style={{ maxWidth: '120px', height: 'auto', marginBottom: '10px' }}
+            style={styles.logo}
           />
-          <h1 style={{ fontSize: '2rem', color: '#800000', fontWeight: 'bold', margin: '10px 0' }}>
+          <h1 style={styles.collegeName}>
             Thiagarajar College of Engineering
           </h1>
-          <h2 style={{ fontSize: '1.5rem', color: '#333', marginBottom: '10px' }}>
-            Department of Mathematics
-          </h2>
-          <h3 style={{ fontSize: '1.2rem', color: '#555', marginBottom: '20px' }}>
-            First Year Diagnostic Test - 2025
-          </h3>
         </div>
 
         {/* Login Form */}
         {!showRegistration ? (
-          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+          <div style={styles.formContainer}>
             <input
               type="email"
-              placeholder="Enter your email address"
+              placeholder="✉️  Enter your email address"
               value={userEmail}
               onChange={(e) => setUserEmail(e.target.value)}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'email' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('email')}
+              onBlur={() => setFocusedField(null)}
               disabled={loading}
             />
             <input
               type="password"
-              placeholder="Enter your password"
+              placeholder="🔒  Enter your password"
               value={userPassword}
               onChange={(e) => setUserPassword(e.target.value)}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'password' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('password')}
+              onBlur={() => setFocusedField(null)}
               onKeyPress={(e) => e.key === 'Enter' && handleUserLogin()}
               disabled={loading}
             />
             <div style={{ textAlign: 'center' }}>
-              <button style={styles.button} onClick={handleUserLogin} disabled={loading}>
+              <button
+                style={{
+                  ...styles.button,
+                  ...(loading ? styles.buttonDisabled : {}),
+                  ...(hoveredButton === 'login' && !loading ? styles.buttonHover : {})
+                }}
+                onClick={handleUserLogin}
+                disabled={loading}
+                onMouseEnter={() => setHoveredButton('login')}
+                onMouseLeave={() => setHoveredButton(null)}
+              >
+                <div style={styles.buttonShine}></div>
                 {loading ? 'Logging in...' : 'Login'}
               </button>
             </div>
-            <div style={{ textAlign: 'center', marginTop: '20px' }}>
-              <p style={{ color: '#666' }}>Don't have an account?</p>
+            <div style={styles.text}>
+              <p style={styles.textContent}>Don't have an account?</p>
               <button
-                style={{ ...styles.button, background: 'linear-gradient(45deg, #4CAF50, #45a049)' }}
+                style={{
+                  ...styles.button,
+                  ...styles.registerButton,
+                  ...(hoveredButton === 'register' && !loading ? styles.registerButtonHover : {})
+                }}
                 onClick={() => setShowRegistration(true)}
                 disabled={loading}
+                onMouseEnter={() => setHoveredButton('register')}
+                onMouseLeave={() => setHoveredButton(null)}
               >
+                <div style={styles.buttonShine}></div>
                 Register Here
               </button>
             </div>
           </div>
         ) : (
           /* Registration Form */
-          <div style={{ maxWidth: '400px', margin: '0 auto' }}>
+          <div style={styles.formContainer}>
             {registrationError && <div style={styles.errorMessage}>{registrationError}</div>}
             <input
               type="text"
-              placeholder="Full Name *"
+              placeholder="👤  Full Name *"
               value={registrationData.name}
               onChange={(e) => setRegistrationData({ ...registrationData, name: e.target.value })}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'name' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('name')}
+              onBlur={() => setFocusedField(null)}
               disabled={loading}
             />
             <input
               type="email"
-              placeholder="Email Address *"
+              placeholder="✉️  Email Address *"
               value={registrationData.email}
               onChange={(e) => setRegistrationData({ ...registrationData, email: e.target.value })}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'regEmail' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('regEmail')}
+              onBlur={() => setFocusedField(null)}
               disabled={loading}
             />
             <input
               type="password"
-              placeholder="Password *"
+              placeholder="🔒  Password *"
               value={registrationData.password}
               onChange={(e) => setRegistrationData({ ...registrationData, password: e.target.value })}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'regPassword' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('regPassword')}
+              onBlur={() => setFocusedField(null)}
               disabled={loading}
             />
             <input
               type="password"
-              placeholder="Confirm Password *"
+              placeholder="🔒  Confirm Password *"
               value={registrationData.confirmPassword}
               onChange={(e) => setRegistrationData({ ...registrationData, confirmPassword: e.target.value })}
-              style={styles.input}
+              style={{
+                ...styles.input,
+                ...(focusedField === 'confirmPassword' ? styles.inputFocus : {})
+              }}
+              onFocus={() => setFocusedField('confirmPassword')}
+              onBlur={() => setFocusedField(null)}
               disabled={loading}
             />
             <div style={{ textAlign: 'center', marginTop: '20px' }}>
-              <button style={styles.button} onClick={handleUserRegistration} disabled={loading}>
+              <button
+                style={{
+                  ...styles.button,
+                  ...(loading ? styles.buttonDisabled : {}),
+                  ...(hoveredButton === 'regSubmit' && !loading ? styles.buttonHover : {})
+                }}
+                onClick={handleUserRegistration}
+                disabled={loading}
+                onMouseEnter={() => setHoveredButton('regSubmit')}
+                onMouseLeave={() => setHoveredButton(null)}
+              >
+                <div style={styles.buttonShine}></div>
                 {loading ? 'Registering...' : 'Register'}
               </button>
             </div>
-            <div style={{ textAlign: 'center', marginTop: '20px' }}>
-              <p style={{ color: '#666' }}>Already have an account?</p>
+            <div style={styles.text}>
+              <p style={styles.textContent}>Already have an account?</p>
               <button
-                style={{ ...styles.button, background: 'linear-gradient(45deg, #667eea, #764ba2)' }}
+                style={{
+                  ...styles.button,
+                  ...styles.backButton,
+                  ...(hoveredButton === 'back' && !loading ? styles.buttonHover : {})
+                }}
                 onClick={() => {
                   setShowRegistration(false);
                   setRegistrationError('');
                 }}
                 disabled={loading}
+                onMouseEnter={() => setHoveredButton('back')}
+                onMouseLeave={() => setHoveredButton(null)}
               >
+                <div style={styles.buttonShine}></div>
                 Back to Login
               </button>
             </div>
           </div>
         )}
       </div>
+
+      {/* Inject CSS Animations */}
+      <style>{authAnimations}</style>
     </div>
   );
 };

@@ -1,43 +1,61 @@
-import React from 'react';
-import { styles } from '../common/styles';
+import React, { useState } from 'react';
+import { gradientStyles } from './gradientStyles';
 import LoadingError from '../common/LoadingError';
 import { ToastContainer } from 'react-toastify';
 
 const CodeEntry = ({ loading, error, quizCode, setQuizCode, handleJoinQuiz, loggedInUser }) => {
+  const [inputFocused, setInputFocused] = useState(false);
+
   return (
-    <div style={styles.container}>
-      <div style={styles.card}>
+    <div style={gradientStyles.container}>
+      <div style={gradientStyles.card}>
         <ToastContainer />
         <LoadingError loading={loading} error={error} />
+        
         {loggedInUser && (
-          <div style={{
-            textAlign: 'right',
-            marginBottom: '15px',
-            padding: '10px',
-            background: 'rgba(102, 126, 234, 0.1)',
-            borderRadius: '8px',
-            fontSize: '14px',
-            color: '#667eea',
-            fontWeight: '500'
-          }}>
-            Logged in as: <span style={{ fontWeight: '600' }}>{loggedInUser.email}</span>
+          <div style={gradientStyles.userInfoBanner}>
+            Logged in as: <span style={gradientStyles.userEmail}>{loggedInUser.email}</span>
           </div>
         )}
-        <div style={{ textAlign: 'center', marginBottom: '30px' }}>
-          <h2>Join a Quiz</h2>
-          <p style={{ color: '#666' }}>Enter the quiz code provided by your instructor</p>
+
+        <div style={gradientStyles.header}>
+          <h2 style={gradientStyles.title}>Join a Quiz</h2>
+          <p style={gradientStyles.subtitle}>Enter the quiz code provided by your instructor</p>
         </div>
+
         <input
           type="text"
           placeholder="Enter quiz code"
           value={quizCode}
           onChange={(e) => setQuizCode(e.target.value)}
-          style={styles.input}
+          style={{
+            ...gradientStyles.input,
+            ...(inputFocused ? gradientStyles.inputFocus : {})
+          }}
+          onFocus={() => setInputFocused(true)}
+          onBlur={() => setInputFocused(false)}
           onKeyPress={(e) => e.key === 'Enter' && handleJoinQuiz()}
           disabled={loading}
         />
-        <div style={{ textAlign: 'center' }}>
-          <button style={styles.button} onClick={handleJoinQuiz} disabled={loading}>
+
+        <div style={gradientStyles.centerContent}>
+          <button 
+            style={{
+              ...gradientStyles.button,
+              ...(loading ? gradientStyles.buttonDisabled : {})
+            }}
+            onClick={handleJoinQuiz} 
+            disabled={loading}
+            onMouseEnter={(e) => {
+              if (!loading) {
+                Object.assign(e.target.style, gradientStyles.buttonHover);
+              }
+            }}
+            onMouseLeave={(e) => {
+              e.target.style.transform = 'translateY(0)';
+              e.target.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.15)';
+            }}
+          >
             {loading ? 'Joining...' : 'Join Quiz'}
           </button>
         </div>
@@ -47,4 +65,3 @@ const CodeEntry = ({ loading, error, quizCode, setQuizCode, handleJoinQuiz, logg
 };
 
 export default CodeEntry;
-
