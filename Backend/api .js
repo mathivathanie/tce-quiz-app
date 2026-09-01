@@ -9,10 +9,12 @@ import dotenv from 'dotenv';
 import passport from 'passport';
 import { Strategy as GoogleStrategy } from 'passport-google-oauth20';
 import session from 'express-session';
+import nodemailer from "nodemailer";
 import { OAuth2Client } from 'google-auth-library';
 const client = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 dotenv.config();
 const app = express();
+
 // If hosted behind a proxy (Render, Railway, etc.), this helps secure cookies work correctly.
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 3001;
@@ -560,6 +562,40 @@ app.post('/api/admin/login', async (req, res) => {
     });
   }
 });
+
+app.post("/api/send-email", async (req, res) => {
+  const { to, subject, body } = req.body;
+
+  if (!to || !subject || !body) {
+    return res.status(400).json({ message: "Missing required fields" });
+  }
+
+  try {
+    const transporter = nodemailer.createTransport({
+      service: "gmail",
+      auth: {
+        user: process.env.GMAIL_USER,
+        pass: process.env.GMAIL_PASS,
+      },
+    });
+
+    await transporter.sendMail({
+      from: `"TCE Manager" <${process.env.GMAIL_USER}>`,
+      to,
+      subject,
+      text: body,
+    });
+
+    res.status(200).json({ message: "Email sent successfully" });
+  } catch (err) {
+    console.error("Email sending error:", err);
+    res.status(500).json({
+      message: "Email sending failed",
+      error: err.message || err.toString(),
+    });
+  }
+});
+
 
 // User registration
 /*app.post('/api/user/register', async (req, res) => {
