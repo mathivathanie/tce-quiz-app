@@ -1,0 +1,278 @@
+import React, { useState } from 'react';
+import { quizViewStyles as styles } from './quizViewStyles';
+import { ToastContainer, toast } from 'react-toastify';
+import QuestionNavigation from '../common/QuestionNavigation';
+import { formatTime } from './studentUtils';
+
+const QuizView = ({ 
+  currentQuiz, 
+  currentQuestion, 
+  userAnswers, 
+  timeLeft, 
+  questionTimeLeft,
+  lockedQuestions,
+  selectOption, 
+  nextQuestion, 
+  previousQuestion, 
+  showWarning, 
+  warningMessage,
+  loggedInUser,
+  API_BASE_URL,
+  selectedPassage,
+  setSelectedPassage,
+  showPassageModal,
+  setShowPassageModal,
+  audioRef,
+  isAudioPlaying,
+  setIsAudioPlaying,
+  setCurrentQuestion
+}) => {
+  const [hoveredOption, setHoveredOption] = useState(null);
+  const [hoveredButton, setHoveredButton] = useState(null);
+
+  const question = currentQuiz.questions[currentQuestion];
+  const isLocked = !!lockedQuestions?.[currentQuestion];
+  const progress = ((currentQuestion + 1) / currentQuiz.questions.length) * 100;
+
+  // Calculate answered questions (0-based index)
+  const answeredQuestions = userAnswers
+    .map((ans, idx) => (ans !== null ? idx : null))
+    .filter((v) => v !== null);
+
+  const qMarks = Number(question?.marks) || 1;
+  const qTime = currentQuiz.timerType === 'hybrid' 
+    ? currentQuiz.maxTimePerQuestion 
+    : 0; // No per-question timing in total mode
+  const qTimeRemaining = Number(questionTimeLeft) || 0;
+
+  return (
+    <div style={styles.container}>
+      <ToastContainer />
+      {showWarning && <div style={styles.warningBanner}>{warningMessage}</div>}
+      <div style={styles.card}>
+        <div style={styles.timer}>{formatTime(currentQuiz.timerType === 'hybrid' ? qTimeRemaining : timeLeft)}</div>
+        <div style={{
+          marginTop: '-6px',
+          textAlign: 'center',
+          color: 'rgba(255,255,255,0.85)',
+          fontWeight: 700,
+          fontSize: 12,
+          letterSpacing: 0.2,
+        }}>
+          {currentQuiz.timerType === 'hybrid' ? 'Total Time' : 'Total'}: {formatTime(currentQuiz.timerType === 'hybrid' ? timeLeft : timeLeft)}
+        </div>
+        <div style={styles.progressBar}>
+          <div style={styles.progressFill(progress)}></div>
+        </div>
+        {currentQuiz?.audioUrl && (
+          <div style={{ marginBottom: '20px' }}>
+            <audio controls src={currentQuiz.audioUrl} style={{ width: '100%' }} />
+          </div>
+        )}
+
+        <div style={styles.questionCard}>
+          <h3 style={{ marginBottom: '15px', color: '#2d3748', fontSize: '20px' }}>
+            Question {currentQuestion + 1} of {currentQuiz.questions.length}
+          </h3>
+          <div style={{
+            marginTop: '-6px',
+            marginBottom: '14px',
+            display: 'flex',
+            gap: '12px',
+            flexWrap: 'wrap',
+            color: '#4a5568',
+            fontSize: '13px',
+            fontWeight: 700,
+          }}>
+            <span>Marks: {qMarks}</span>
+            {currentQuiz.timerType === 'hybrid' && (
+              <span>Time: {qTimeRemaining}s / {qTime}s</span>
+            )}
+            {isLocked && (
+              <span style={{
+                padding: '4px 10px',
+                borderRadius: 999,
+                background: 'rgba(239, 68, 68, 0.12)',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+                color: '#ef4444',
+              }}>
+                Time up (Locked)
+              </span>
+            )}
+          </div>
+          {question.questionType === 'image' && question.imageUrl && (
+            <div style={styles.imageContainer}>
+              <img 
+                src={`${API_BASE_URL}${question.imageUrl}`}
+                alt="Question"
+                style={styles.questionImage}
+                onError={(e) => {
+                  e.target.style.display = 'none';
+                  toast.error('Failed to load question image');
+                }}
+              />
+            </div>
+          )}
+          {question.question && (
+            <p style={{ fontSize: '16px', lineHeight: '1.6', color: '#4a5568' }}>
+              {question.question}
+            </p>
+          )}
+        </div>
+
+        {(isLocked || (currentQuiz.timerType === 'hybrid' && qTimeRemaining <= 0)) && (
+          <div style={{
+            marginTop: '-4px',
+            marginBottom: '16px',
+            padding: '10px 12px',
+            borderRadius: 12,
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            color: 'rgba(255,255,255,0.92)',
+            fontWeight: 800,
+            textAlign: 'center'
+          }}>
+            Time is over for this question. You can continue to the next question.
+          </div>
+        )}
+
+        {currentQuiz.hasAudio && (
+          <div style={styles.audioPlayer}>
+            <audio
+              ref={audioRef}
+              src={`${API_BASE_URL}/api/quiz-sessions/${currentQuiz.sessionId}/audio`}
+              onPlay={() => setIsAudioPlaying(true)}
+              onPause={() => setIsAudioPlaying(false)}
+              controls
+              style={{ width: '100%' }}
+            />
+          </div>
+        )}
+
+        {currentQuiz.passages && currentQuiz.passages.length > 0 && (
+          <div style={{ marginBottom: '20px' }}>
+            {currentQuiz.passages.map((passage) => (
+              <button
+                key={passage._id}
+                style={styles.passageButton}
+                onClick={() => {
+                  setSelectedPassage(passage);
+                  setShowPassageModal(true);
+                }}
+                onMouseEnter={(e) => {
+                  Object.assign(e.target.style, styles.passageButtonHover);
+                }}
+                onMouseLeave={(e) => {
+                  e.target.style.transform = 'translateY(0)';
+                  e.target.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.1)';
+                  e.target.style.background = 'rgba(255, 255, 255, 0.9)';
+                }}
+              >
+                View Passage: {passage.title}
+              </button>
+            ))}
+          </div>
+        )}
+
+        <div>
+          {Object.entries(question.options).map(([key, value], index) => {
+            const displayNumber = (index + 1).toString();
+            const isSelected = userAnswers[currentQuestion] === key.toUpperCase();
+            const disabled = isLocked || (currentQuiz.timerType === 'hybrid' && qTimeRemaining <= 0);
+
+            return (
+              <div
+                key={key}
+                style={{
+                  ...styles.option(isSelected),
+                  ...(hoveredOption === index && !isSelected && !disabled ? styles.optionHover : {}),
+                  ...(disabled ? { opacity: 0.55, cursor: 'not-allowed' } : {})
+                }}
+                onClick={() => {
+                  if (disabled) return;
+                  selectOption(index);
+                }}
+                onMouseEnter={() => setHoveredOption(index)}
+                onMouseLeave={() => setHoveredOption(null)}
+              >
+                {displayNumber}: {value}
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '20px' }}>
+          <button 
+            style={{
+              ...styles.button,
+              ...(currentQuestion === 0 ? styles.buttonDisabled : {}),
+              ...(hoveredButton === 'prev' && currentQuestion !== 0 ? styles.buttonHover : {})
+            }}
+            onClick={previousQuestion} 
+            disabled={currentQuestion === 0 || !!lockedQuestions?.[currentQuestion - 1]}
+            onMouseEnter={() => setHoveredButton('prev')}
+            onMouseLeave={() => setHoveredButton(null)}
+          >
+            ← Previous
+          </button>
+          <button 
+            style={{
+              ...styles.button,
+              ...(hoveredButton === 'next' ? styles.buttonHover : {})
+            }}
+            onClick={nextQuestion}
+            onMouseEnter={() => setHoveredButton('next')}
+            onMouseLeave={() => setHoveredButton(null)}
+          >
+            {currentQuestion === currentQuiz.questions.length - 1 ? 'Submit' : 'Next →'}
+          </button>
+        </div>
+      </div>
+
+      {/* Footer Navigation Panel */}
+      <QuestionNavigation
+        totalQuestions={currentQuiz.questions.length}
+        answeredQuestions={answeredQuestions}
+        currentQuestion={currentQuestion}
+        onNavigate={setCurrentQuestion}
+        lockedQuestions={lockedQuestions}
+      />
+
+      {showPassageModal && selectedPassage && (
+        <div style={styles.passageModal}>
+          <div style={styles.passageContent}>
+            <button 
+              onClick={() => setShowPassageModal(false)} 
+              style={{ 
+                float: 'right',
+                padding: '8px 20px',
+                background: '#667eea',
+                color: '#ffffff',
+                border: 'none',
+                borderRadius: '8px',
+                cursor: 'pointer',
+                fontWeight: '600',
+                fontSize: '14px'
+              }}
+            >
+              Close
+            </button>
+            <h3 style={{ color: '#2d3748', marginBottom: '20px', fontSize: '24px' }}>
+              {selectedPassage.title}
+            </h3>
+            <p style={{ 
+              whiteSpace: 'pre-wrap', 
+              lineHeight: '1.8', 
+              color: '#4a5568',
+              fontSize: '15px' 
+            }}>
+              {selectedPassage.content}
+            </p>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
+export default QuizView;

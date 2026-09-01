@@ -1,0 +1,25 @@
+# dependencies
+node_modules/
+
+# env files
+.env
+.env.*.local
+
+# logs
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/
+
+# build / cache
+dist/
+build/
+.cache/
+
+# runtime uploads
+uploads/
+uploads_root/
