@@ -1,0 +1,149 @@
+name: Deploy TCE Quiz App
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      # =========================
+      # CHECKOUT
+      # =========================
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # =========================
+      # SETUP NODE
+      # =========================
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: Frontend/package-lock.json
+
+      # =========================
+      # BUILD FRONTEND
+      # =========================
+      - name: Install frontend dependencies
+        working-directory: Frontend
+        run: npm ci
+
+      - name: Build frontend
+        working-directory: Frontend
+        run: npm run build
+
+      # =========================
+      # SSH SETUP
+      # =========================
+      - name: Setup SSH
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
+
+      - name: Add server to known_hosts
+        run: |
+          mkdir -p ~/.ssh
+          ssh-keyscan -p 2244 ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+      # =========================
+      # BACKUP
+      # =========================
+      - name: Backup production
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            cp -a /var/www/api.tceapps.in \
+              /var/www/api.tceapps.in.bak_$(date +%Y%m%d_%H%M%S)
+
+            cp -a /var/www/quiz.tceapps.in \
+              /var/www/quiz.tceapps.in.bak_$(date +%Y%m%d_%H%M%S)
+          '
+
+      # =========================
+      # DEPLOY BACKEND
+      # =========================
+      - name: Deploy backend
+        run: |
+          rsync -avz \
+            -e "ssh -p 2244" \
+            --exclude=".env" \
+            --exclude="node_modules" \
+            --exclude="uploads" \
+            Backend/ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/api.tceapps.in/
+
+      # =========================
+      # CREATE .ENV
+      # =========================
+      - name: Create backend .env
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} <<EOF
+          cat > /var/www/api.tceapps.in/.env <<'ENVEOF'
+          MONGODB_URI=${{ secrets.MONGODB_URI }}
+          SESSION_SECRET=${{ secrets.SESSION_SECRET }}
+          FRONTEND_URL=${{ secrets.FRONTEND_URL }}
+          SERVER_URL=${{ secrets.SERVER_URL }}
+          GOOGLE_CLIENT_ID=${{ secrets.GOOGLE_CLIENT_ID }}
+          GOOGLE_CLIENT_SECRET=${{ secrets.GOOGLE_CLIENT_SECRET }}
+          GOOGLE_CALLBACK_URL=${{ secrets.GOOGLE_CALLBACK_URL }}
+          GMAIL_USER=${{ secrets.GMAIL_USER }}
+          GMAIL_PASS=${{ secrets.GMAIL_PASS }}
+          ADMIN_CODE=${{ secrets.ADMIN_CODE }}
+          NODE_ENV=production
+          ENVEOF
+
+          chmod 600 /var/www/api.tceapps.in/.env
+          EOF
+
+      # =========================
+      # INSTALL + RESTART BACKEND
+      # =========================
+      - name: Install backend dependencies
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            cd /var/www/api.tceapps.in &&
+            npm ci --omit=dev
+          '
+
+      - name: Restart Quiz API
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            pm2 restart api-tceapps &&
+            pm2 save
+          '
+
+      # =========================
+      # DEPLOY FRONTEND
+      # =========================
+      - name: Deploy frontend
+        run: |
+          rsync -avz --delete \
+            -e "ssh -p 2244" \
+            Frontend/dist/ \
+            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/quiz.tceapps.in/
+
+      # =========================
+      # FRONTEND PERMISSIONS
+      # =========================
+      - name: Set frontend permissions
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            chown -R www-data:www-data /var/www/quiz.tceapps.in
+          '
+
+      # =========================
+      # VERIFY DEPLOYMENT
+      # =========================
+      - name: Verify backend
+        run: |
+          ssh -p 2244 ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+            curl -fsS https://api.tceapps.in/api/health
+          '
+
+      - name: Verify frontend
+        run: |
+          curl -fsSI https://quiz.tceapps.in
