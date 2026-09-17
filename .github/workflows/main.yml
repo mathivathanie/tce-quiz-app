@@ -15,14 +15,14 @@ jobs:
       # CHECKOUT
       # =========================
       - name: Checkout repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
 
       # =========================
       # SETUP NODE
       # =========================
       - name: Setup Node.js
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -42,18 +42,32 @@ jobs:
 
 
       # =========================
-      # SSH SETUP
+      # SETUP SSH
       # =========================
-      - name: Setup SSH
-        uses: webfactory/ssh-agent@v0.9.0
-        with:
-          ssh-private-key: ${{ secrets.SSH_PRIVATE_KEY }}
-
-      - name: Add server to known_hosts
+      - name: Setup SSH key
+        shell: bash
         run: |
           mkdir -p ~/.ssh
-          ssh-keyscan -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_HOST }} >> ~/.ssh/known_hosts
+
+          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/deploy_key
+
+          chmod 600 ~/.ssh/deploy_key
+
+          ssh-keyscan -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_HOST }}" >> ~/.ssh/known_hosts
+
+
+      # =========================
+      # TEST SSH CONNECTION
+      # =========================
+      - name: Test SSH connection
+        run: |
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            -o StrictHostKeyChecking=yes \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" \
+            "echo 'SSH connection successful'"
 
 
       # =========================
@@ -61,8 +75,10 @@ jobs:
       # =========================
       - name: Backup production
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
               cp -a /var/www/api.tceapps.in \
                 /var/www/api.tceapps.in.bak_$(date +%Y%m%d_%H%M%S)
 
@@ -77,12 +93,12 @@ jobs:
       - name: Deploy backend
         run: |
           rsync -avz \
-            -e "ssh -p ${{ secrets.SERVER_PORT }}" \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }}" \
             --exclude=".env" \
             --exclude="node_modules" \
             --exclude="uploads" \
             Backend/ \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/api.tceapps.in/
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/api.tceapps.in/"
 
 
       # =========================
@@ -90,8 +106,10 @@ jobs:
       # =========================
       - name: Create backend .env
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} <<EOF
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" <<EOF
 
           cat > /var/www/api.tceapps.in/.env <<'ENVEOF'
           MONGODB_URI=${{ secrets.MONGODB_URI }}
@@ -116,8 +134,10 @@ jobs:
       # =========================
       - name: Install backend dependencies
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
               cd /var/www/api.tceapps.in &&
               npm ci --omit=dev
             '
@@ -128,8 +148,10 @@ jobs:
       # =========================
       - name: Restart Quiz API
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
               pm2 restart api-tceapps &&
               pm2 save
             '
@@ -141,9 +163,9 @@ jobs:
       - name: Deploy frontend
         run: |
           rsync -avz --delete \
-            -e "ssh -p ${{ secrets.SERVER_PORT }}" \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.SERVER_PORT }}" \
             Frontend/dist/ \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/quiz.tceapps.in/
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}:/var/www/quiz.tceapps.in/"
 
 
       # =========================
@@ -151,8 +173,10 @@ jobs:
       # =========================
       - name: Set frontend permissions
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
               chown -R www-data:www-data /var/www/quiz.tceapps.in
             '
 
@@ -162,8 +186,10 @@ jobs:
       # =========================
       - name: Verify backend
         run: |
-          ssh -p ${{ secrets.SERVER_PORT }} \
-            ${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }} '
+          ssh \
+            -i ~/.ssh/deploy_key \
+            -p "${{ secrets.SERVER_PORT }}" \
+            "${{ secrets.SERVER_USER }}@${{ secrets.SERVER_HOST }}" '
               curl -fsS https://api.tceapps.in/api/health
             '
 
@@ -174,3 +200,12 @@ jobs:
       - name: Verify frontend
         run: |
           curl -fsSI https://quiz.tceapps.in
+
+
+      # =========================
+      # CLEAN SSH KEY
+      # =========================
+      - name: Cleanup SSH key
+        if: always()
+        run: |
+          rm -f ~/.ssh/deploy_key
